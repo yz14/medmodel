@@ -19,6 +19,7 @@ export function ViewerPage() {
   const seriesUid = useViewerStore((s) => s.seriesUid)
   const setSeriesUid = useViewerStore((s) => s.setSeriesUid)
   const resetViewer = useViewerStore((s) => s.resetViewer)
+  const setSliceCount = useViewerStore((s) => s.setSliceCount)
 
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
@@ -82,6 +83,17 @@ export function ViewerPage() {
     enabled: !!seriesUid,
   })
 
+  // Prefer series.num_instances before instances API settles (Findings clamp)
+  const seriesHintCount =
+    studyQuery.data?.series?.find((s) => s.series_uid === seriesUid)?.num_instances ??
+    studyQuery.data?.series?.[0]?.num_instances ??
+    0
+  const sliceCount = instancesQuery.data?.total ?? seriesHintCount
+
+  useEffect(() => {
+    setSliceCount(sliceCount)
+  }, [sliceCount, setSliceCount])
+
   if (studyQuery.isLoading) {
     return (
       <div className="grid h-full grid-cols-1 md:grid-cols-[220px_1fr_300px]">
@@ -115,7 +127,6 @@ export function ViewerPage() {
   }
 
   const study = studyQuery.data
-  const sliceCount = instancesQuery.data?.total ?? 0
   const activeSeries = study.series?.find((s) => s.series_uid === seriesUid) ?? study.series?.[0]
   const patientLabel = `${study.patient_name || '未知患者'} · ${study.modality || '—'} · ${study.study_description || study.study_uid}`
   const viewportMeta = {

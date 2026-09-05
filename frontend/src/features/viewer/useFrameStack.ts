@@ -6,18 +6,18 @@ const MAX_CACHE = 24
 const PREFETCH_RADIUS = 2
 
 /**
- * Series-scoped frame cache + neighbor prefetch (fixes A-7).
- * Cache clears only when seriesUid changes, not on every slice scroll.
+ * Series-scoped frame cache + neighbor prefetch.
+ * N-F1: generation stamp + Map replacement so stale promises never write into the new series cache.
  */
 export function useFrameStack(seriesUid: string, sliceIndex: number, sliceCount: number) {
+  const genRef = useRef(0)
   const cacheRef = useRef<Map<number, DecodedFrame>>(new Map())
   const inflightRef = useRef<Map<number, Promise<DecodedFrame>>>(new Map())
   const [frame, setFrame] = useState<DecodedFrame | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const trimCache = useCallback((around: number) => {
-    const cache = cacheRef.current
+  const trimCache = useCallback((around: number, cache: Map<number, DecodedFrame>) => {
     if (cache.size <= MAX_CACHE) return
     const keys = [...cache.keys()].sort(
       (a, b) => Math.abs(a - around) - Math.abs(b - around),
@@ -27,55 +27,72 @@ export function useFrameStack(seriesUid: string, sliceIndex: number, sliceCount:
     }
   }, [])
 
-  const loadOne = useCallback(
-    async (idx: number): Promise<DecodedFrame> => {
-      const cached = cacheRef.current.get(idx)
-      if (cached) return cached
-      const inflight = inflightRef.current.get(idx)
-      if (inflight) return inflight
-
-      const promise = decodeDicomFrame(api.frameUrl(seriesUid, idx))
-        .then((decoded) => {
-          cacheRef.current.set(idx, decoded)
-          trimCache(idx)
-          return decoded
-        })
-        .finally(() => {
-          inflightRef.current.delete(idx)
-        })
-      inflightRef.current.set(idx, promise)
-      return promise
-    },
-    [seriesUid, trimCache],
-  )
-
-  // Clear cache only when series changes
+  // Replace Maps on series change (do not clear-in-place — old promises may still resolve)
   useEffect(() => {
-    cacheRef.current.clear()
-    inflightRef.current.clear()
+    genRef.current += 1
+    cacheRef.current = new Map()
+    inflightRef.current = new Map()
     setFrame(null)
     setError(null)
   }, [seriesUid])
 
+  const loadOne = useCallback(
+    async (idx: number): Promise<DecodedFrame> => {
+      if (idx < 0 || (sliceCount > 0 && idx >= sliceCount)) {
+        throw new Error(`切片越界: ${idx}`)
+      }
+      const gen = genRef.current
+      const cache = cacheRef.current
+      const inflight = inflightRef.current
+
+      const cached = cache.get(idx)
+      if (cached) return cached
+      const pending = inflight.get(idx)
+      if (pending) return pending
+
+      const promise = decodeDicomFrame(api.frameUrl(seriesUid, idx))
+        .then((decoded) => {
+          if (gen !== genRef.current) return decoded
+          cache.set(idx, decoded)
+          trimCache(idx, cache)
+          return decoded
+        })
+        .finally(() => {
+          if (gen === genRef.current) {
+            inflight.delete(idx)
+          }
+        })
+      inflight.set(idx, promise)
+      return promise
+    },
+    [seriesUid, sliceCount, trimCache],
+  )
+
   // Load current slice
   useEffect(() => {
+    if (!seriesUid || sliceCount <= 0) return
+    if (sliceIndex < 0 || sliceIndex >= sliceCount) return
+
     let cancelled = false
+    const gen = genRef.current
     setLoading(true)
     setError(null)
     void loadOne(sliceIndex)
       .then((decoded) => {
-        if (!cancelled) setFrame(decoded)
+        if (!cancelled && gen === genRef.current) setFrame(decoded)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : '帧解码失败')
+        if (!cancelled && gen === genRef.current) {
+          setError(err instanceof Error ? err.message : '帧解码失败')
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && gen === genRef.current) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [sliceIndex, loadOne])
+  }, [sliceIndex, sliceCount, seriesUid, loadOne])
 
   // Prefetch neighbors
   useEffect(() => {

@@ -1,8 +1,12 @@
 import {
   Contrast,
+  Crosshair,
+  FlipHorizontal2,
   FlipVertical2,
   Hand,
+  Maximize2,
   MoveHorizontal,
+  Ratio,
   Ruler,
   RotateCcw,
   Rows3,
@@ -11,15 +15,17 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { WINDOW_PRESETS, relativeZoom, zoomAt } from '@/features/viewer/core'
 import { useViewerStore, type ViewerTool } from '@/stores/viewer-store'
 import { cn } from '@/lib/utils'
 
 const TOOLS: Array<{ id: ViewerTool; label: string; icon: typeof Hand; hint: string }> = [
-  { id: 'scroll', label: '卷帘', icon: Rows3, hint: '1 · 滚轮切层' },
-  { id: 'wwwc', label: '窗宽窗位', icon: Contrast, hint: '2 · 拖动调 W/L' },
-  { id: 'pan', label: '平移', icon: Hand, hint: '3 · 拖动平移' },
+  { id: 'scroll', label: '卷帘', icon: Rows3, hint: '1 · 滚轮 / PageUp-Down' },
+  { id: 'wwwc', label: '窗宽窗位', icon: Contrast, hint: '2 · 拖动 / 右键' },
+  { id: 'pan', label: '平移', icon: Hand, hint: '3 · 拖动 / 中键' },
   { id: 'length', label: '测距', icon: Ruler, hint: '4 · 两点测距' },
-  { id: 'zoom', label: '缩放', icon: MoveHorizontal, hint: 'Ctrl+滚轮 / 拖动' },
+  { id: 'zoom', label: '缩放', icon: MoveHorizontal, hint: '5 · Ctrl+滚轮 / 拖动' },
+  { id: 'probe', label: '探针', icon: Crosshair, hint: '6 · HU 探针' },
 ]
 
 export function ViewerToolbar({
@@ -36,12 +42,29 @@ export function ViewerToolbar({
   const setWindow = useViewerStore((s) => s.setWindow)
   const invert = useViewerStore((s) => s.invert)
   const setInvert = useViewerStore((s) => s.setInvert)
-  const zoom = useViewerStore((s) => s.zoom)
-  const setZoom = useViewerStore((s) => s.setZoom)
+  const flipH = useViewerStore((s) => s.flipH)
+  const flipV = useViewerStore((s) => s.flipV)
+  const toggleFlipH = useViewerStore((s) => s.toggleFlipH)
+  const toggleFlipV = useViewerStore((s) => s.toggleFlipV)
+  const camera = useViewerStore((s) => s.camera)
+  const fitScale = useViewerStore((s) => s.fitScale)
+  const updateCamera = useViewerStore((s) => s.updateCamera)
   const tool = useViewerStore((s) => s.tool)
   const setTool = useViewerStore((s) => s.setTool)
   const resetViewTransform = useViewerStore((s) => s.resetViewTransform)
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements)
+
+  const zoomPct = relativeZoom(camera, fitScale || camera.scale)
+
+  const zoomAboutCenter = (factor: number) => {
+    const stage = document.querySelector('[data-testid="stack-viewport"]')
+    if (!(stage instanceof HTMLElement)) {
+      updateCamera((cam) => zoomAt(cam, 0, 0, factor))
+      return
+    }
+    const rect = stage.getBoundingClientRect()
+    updateCamera((cam) => zoomAt(cam, rect.width / 2, rect.height / 2, factor))
+  }
 
   return (
     <div className="flex h-12 items-center gap-2 border-b border-border bg-surface-1 px-3">
@@ -81,7 +104,30 @@ export function ViewerToolbar({
         </span>
       </div>
 
-      <div className="hidden items-center gap-2 lg:flex">
+      <label className="hidden items-center gap-1.5 text-[11px] text-muted lg:flex">
+        <span className="sr-only">窗宽窗位预设</span>
+        <select
+          className="h-8 max-w-[7.5rem] rounded-md border border-border bg-surface-0 px-2 text-xs text-fg"
+          aria-label="窗宽窗位预设"
+          value=""
+          onChange={(e) => {
+            const preset = WINDOW_PRESETS.find((p) => p.id === e.target.value)
+            if (preset) setWindow(preset.ww, preset.wc)
+            e.currentTarget.value = ''
+          }}
+        >
+          <option value="" disabled>
+            窗位预设
+          </option>
+          {WINDOW_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label} ({p.ww}/{p.wc})
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="hidden items-center gap-2 xl:flex">
         <span className="text-[11px] text-muted">W</span>
         <Slider
           className="w-20"
@@ -102,18 +148,69 @@ export function ViewerToolbar({
         />
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" onClick={() => setZoom(zoom - 0.1)} title="缩小" aria-label="缩小">
+      <div className="flex items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => zoomAboutCenter(0.9)}
+          title="缩小"
+          aria-label="缩小"
+        >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => setZoom(zoom + 0.1)} title="放大" aria-label="放大">
+        <span className="hidden w-10 text-center text-[10px] tabular-nums text-muted sm:inline">
+          {(zoomPct * 100).toFixed(0)}%
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => zoomAboutCenter(1.1)}
+          title="放大"
+          aria-label="放大"
+        >
           <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="适应窗口 (F)"
+          aria-label="适应窗口"
+          onClick={() => window.dispatchEvent(new Event('voxflow:viewer-fit'))}
+        >
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="1:1 像素"
+          aria-label="1比1"
+          onClick={() => window.dispatchEvent(new Event('voxflow:viewer-1to1'))}
+        >
+          <Ratio className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={flipH ? 'secondary' : 'ghost'}
+          size="icon"
+          onClick={() => toggleFlipH()}
+          title="水平翻转 (H)"
+          aria-label="水平翻转"
+        >
+          <FlipHorizontal2 className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={flipV ? 'secondary' : 'ghost'}
+          size="icon"
+          onClick={() => toggleFlipV()}
+          title="垂直翻转 (V)"
+          aria-label="垂直翻转"
+        >
+          <FlipVertical2 className="h-4 w-4" />
         </Button>
         <Button
           variant={invert ? 'secondary' : 'ghost'}
           size="icon"
           onClick={() => setInvert(!invert)}
-          title="反色"
+          title="反色 (I)"
           aria-label="反色"
         >
           <FlipVertical2 className="h-4 w-4" />
@@ -126,6 +223,7 @@ export function ViewerToolbar({
           onClick={() => {
             resetViewTransform()
             clearMeasurements()
+            window.dispatchEvent(new Event('voxflow:viewer-reset-camera'))
           }}
         >
           <RotateCcw className="h-4 w-4" />

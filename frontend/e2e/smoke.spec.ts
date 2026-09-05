@@ -10,6 +10,7 @@ test.describe('VoxFlow smoke', () => {
 
     await page.goto(`/viewer/${encodeURIComponent(study.study_uid)}`)
     await expect(page.getByText('AI 分析')).toBeVisible()
+    await expect(page.getByTestId('stack-viewport')).toBeVisible({ timeout: 20_000 })
 
     // Wait for models + frames to settle
     await expect(page.getByTestId('model-select')).toBeVisible({ timeout: 20_000 })

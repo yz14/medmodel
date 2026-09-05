@@ -17,31 +17,74 @@ function parseCssColor(color: string): [number, number, number] {
   return [56, 189, 248]
 }
 
-const maskImageCache = new Map<string, ImageBitmap | HTMLImageElement>()
+type CacheEntry = {
+  image: ImageBitmap | HTMLImageElement
+  objectUrl?: string
+}
+
+const MAX_MASK_CACHE = 48
+/** Insertion-order Map = LRU (re-insert on hit). */
+const maskImageCache = new Map<string, CacheEntry>()
+
+function disposeEntry(entry: CacheEntry) {
+  if (typeof ImageBitmap !== 'undefined' && entry.image instanceof ImageBitmap) {
+    try {
+      entry.image.close()
+    } catch {
+      /* ignore */
+    }
+  }
+  if (entry.objectUrl) {
+    URL.revokeObjectURL(entry.objectUrl)
+  }
+}
+
+function touch(url: string, entry: CacheEntry) {
+  maskImageCache.delete(url)
+  maskImageCache.set(url, entry)
+  while (maskImageCache.size > MAX_MASK_CACHE) {
+    const oldest = maskImageCache.keys().next().value
+    if (oldest == null) break
+    const evicted = maskImageCache.get(oldest)
+    if (evicted) disposeEntry(evicted)
+    maskImageCache.delete(oldest)
+  }
+}
 
 async function loadMaskImage(url: string): Promise<ImageBitmap | HTMLImageElement> {
   const cached = maskImageCache.get(url)
-  if (cached) return cached
+  if (cached) {
+    touch(url, cached)
+    return cached.image
+  }
   const res = await fetch(url)
   if (!res.ok) throw new Error(`掩膜加载失败: ${res.status}`)
   const blob = await res.blob()
   try {
     const bmp = await createImageBitmap(blob)
-    maskImageCache.set(url, bmp)
+    touch(url, { image: bmp })
     return bmp
   } catch {
+    const objectUrl = URL.createObjectURL(blob)
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image()
       el.onload = () => resolve(el)
-      el.onerror = () => reject(new Error('掩膜 PNG 解码失败'))
-      el.src = URL.createObjectURL(blob)
+      el.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        reject(new Error('掩膜 PNG 解码失败'))
+      }
+      el.src = objectUrl
     })
-    maskImageCache.set(url, img)
+    touch(url, { image: img, objectUrl })
     return img
   }
 }
 
+/** Dispose all cached bitmaps / object URLs (N-F4). */
 export function clearMaskImageCache() {
+  for (const entry of maskImageCache.values()) {
+    disposeEntry(entry)
+  }
   maskImageCache.clear()
 }
 
@@ -77,7 +120,6 @@ export async function paintMaskOverlay(
     return false
   }
 
-  // Read label values via offscreen
   const off = document.createElement('canvas')
   off.width = width
   off.height = height
@@ -100,7 +142,7 @@ export async function paintMaskOverlay(
   const isBinaryFriendly = ids.length === 1
 
   for (let i = 0; i < width * height; i++) {
-    const v = src.data[i * 4]! // R channel of grayscale label PNG
+    const v = src.data[i * 4]!
     if (v === 0) continue
     let color = colorById.get(v)
     if (!color && isBinaryFriendly && v > 0) {

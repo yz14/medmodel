@@ -377,6 +377,13 @@ src/
 - **N-F10/11/12**：去掉假 sparkline；环形图实色；cls/det 指标；缓存徽章；TaskList 按行 pending；`?panel=ai`
 - 验证：后端 **22 passed**；前端 `npm run build` 通过
 
+### R9 验收（阅片器核心）
+- **相机**：`features/viewer/core/` — `Camera2D` / `fitCamera` / `zoomAt` / `panBy` / `screenToImage`；CSS `matrix` 统一底图/掩膜/SVG
+- **N-F13**：默认 fit-to-window；工具栏「适应窗口 / 1:1」；去掉 `max-h-[70vh]`
+- **N-F1/F2/F4/F5**：帧缓存 generation；slice clamp；mask LRU；指针 deps 收口
+- **PACS 工具**：W/L 预设、H/V 翻转、反色、HU 探针、比例尺、PageUp/Down/Home/End、中键平移/右键窗宽
+- 验证：前端 `npm run build` 通过；smoke 增加 `stack-viewport` 可见断言
+
 ---
 
 # TODO-3 第二轮全面审查：R1～R7 修复验证 + 新问题 + 最终整改建议
@@ -444,13 +451,13 @@ src/
 ## 三、新发现问题 —— 前端
 
 ### Critical
-- [ ] **N-F1 `useFrameStack` 竞态**：`cacheRef`/`inflightRef` 是同一个可变 Map，series 切换时 `clear()`，但旧 promise 的 `.then/.finally` 仍会把旧序列帧写进新缓存、误删新序列 inflight。修法：闭包捕获 `seriesUid`，resolve 后比对；或切换时直接换新 Map 实例（+ `AbortController` 取消旧请求）。（`features/viewer/useFrameStack.ts:12-91`）
-- [ ] **N-F2 `setSliceIndex` 无上界 clamp**：只 `Math.max(0, n)`，Findings 跳层 / 快速滚轮会请求越界帧 → 4xx →"帧解码失败"。（`stores/viewer-store.ts:97-100`、`AiPanel.tsx:119-124`）
-- [ ] **N-F3 阅片器相机数学不对**：Pan 未除以 `zoom`（放大后拖动"跑得快"）；以鼠标为中心缩放靠 `transform-origin` 实现，Pan 之后中心漂移；测距落点未 clamp、事件绑在 `stageRef` 而非画布上，点黑边会得到图像外坐标。**应改为一个显式的 2D 相机模型**（`scale`, `tx`, `ty`，image→screen = `p*scale + t`），缩放时 `t' = mouse - (mouse - t) * (s'/s)`，所有 overlay（mask canvas / SVG / 测量）共用同一矩阵；这是 OHIF/Cornerstone `camera` 的思路，也是后续换 CS3D 的平滑过渡点。（`StackViewport.tsx:168-184, 262-268, 335-357`）
-- [ ] **N-F4 `maskComposite` 内存泄漏**：模块级 `maskImageCache` 无上限；fallback 的 `URL.createObjectURL` 从不 `revoke`；`ImageBitmap` 被覆盖时不 `close()`。加 LRU（按 task 维度整体清理）+ 页面卸载清空。（`features/viewer/maskComposite.ts:20-46`）
+- [x] **N-F1 `useFrameStack` 竞态**：**R9 已修** — generation stamp + Map 替换；旧 promise 不再写入新缓存。
+- [x] **N-F2 `setSliceIndex` 无上界 clamp**：**R9 已修** — store `sliceCount` + clamp；viewer 同步 instances/series 计数。
+- [x] **N-F3 阅片器相机数学不对**：**R9 已修** — `features/viewer/core/camera.ts` 显式 `{scale,tx,ty}`；`zoomAt`/`panBy`/`screenToImage`；overlay 共用 matrix。
+- [x] **N-F4 `maskComposite` 内存泄漏**：**R9 已修** — LRU(48) + `ImageBitmap.close` + `revokeObjectURL`。
 
 ### Major
-- [ ] **N-F5 指针事件 effect 依赖过重**：deps 含 `panX/panY/zoom/sliceIndex/W/L/measurements`，拖动中每帧 remove/add listener，可能丢 `pointerup` 导致"粘住"。用 `useRef` 存瞬态、handler 内 `useViewerStore.getState()`，只按 `tool` 重绑。（`StackViewport.tsx:290-305`）
+- [x] **N-F5 指针事件 effect 依赖过重**：**R9 已修** — handlers 用 `getState()`；deps ≈ `[tool, frame]`。
 - [ ] **N-F6 Findings"全选"逻辑错误**：部分选中时执行结果是"取补集"，永远无法一次全选；且 `AiPanel` 的 `useEffect` 在 findings 变化时强制全选，会覆盖用户手动取消。（`FindingsList.tsx:95-109`、`AiPanel.tsx:115-117`）
 - [ ] **N-F7 动态表单**：未读 `schema.required`；enum 全部 `String()` 丢类型；数字清空 `onChange(undefined)` 与 zod 语义不一致。（`ModelParamsForm.tsx:9-57, 74-99`）
 - [ ] **N-F8 SSE 与 5s 轮询并行**：`task-detail` 与 `AiPanel` 均 `refetchInterval: 5000` 且同时 `useTaskSSE`。让 `useTaskSSE` 暴露 `connected`，`refetchInterval = connected ? false : 3000`。
@@ -458,7 +465,7 @@ src/
 - [x] **N-F10 ✅实测 Dashboard sparkline 是假的**：**R8 已修** — 去掉 `sparkSeriesFromValue` 与 KPI 假趋势图标；无时序则不画线。
 - [x] **N-F11 ✅实测 深色主题首屏"模型应用分布"环形图空白**：**R8 已修** — `getComputedStyle` 解析 token 为实色 + `minHeight`/`debounce`/`isAnimationActive=false`。
 - [x] **N-F12 ✅实测 展示层细节**：**R8 已修** — cls/det 指标按 task_type（AUC/mAP）；缓存徽章+源任务链接；TaskList 按行 `variables` pending + `aria-label`；StudyDrawer「送去分析」→ `?panel=ai`。
-- [ ] **N-F13 ✅实测 阅片视口利用率低**：`canvas` 有 `max-h-[min(70vh,100%)]`，256² 影像在 1600×900 下只占约 300px，上下大片黑边；默认应 **fit-to-window**（按容器短边计算初始 scale，`R` 重置回该值），大屏/竖屏都如此。（`StackViewport.tsx:360`）
+- [x] **N-F13 ✅实测 阅片视口利用率低**：**R9 已修** — 默认 fit-to-window（短边）、去掉 `max-h-[70vh]`；`F`/工具栏适应窗口；`R` 重置并重 fit。
 
 ### Minor
 - `Suspense` 包在 `Routes` 外导致切页闪掉整个 AppLayout → 移到 `Outlet` 级；`api.ts` `undefined as T` / `as T`，SSE payload `as TaskSummary` 无运行时校验 → 对 SSE 事件与 `InferenceResult` 用 zod 做最小 parse；`model-detail` 的 `enabled` 只随 `id` 同步；`Settings` 的 Switch 无 `aria-label`；日志时间线无 level 颜色；`formatPercent` 语义（0–1 还是 0–100）在 Dashboard 与 Progress 间不一致；`DIST_LABEL`/`TYPE_LABEL`、时间格式化函数多处重复。
@@ -490,7 +497,7 @@ src/
 | 轮 | 内容 | 验收 |
 |---|---|---|
 | **R8（数据正确性，最先做）** ✅ | N-B1～B4、N-F10/11/12 | **已验收**：pytest **22 passed**（含 N-B1/2/3/4 回归）；`npm run build` 通过；Alembic 落地 |
-| **R9（阅片器核心）** | N-F3 相机模型重构（fit-to-window、鼠标中心缩放、Pan 修正、测量 clamp）+ N-F13 + N-F1/N-F2/N-F4/N-F5 + 预设 W/L / 翻转 / 反色 / 探针 / 比例尺 / PageUp-Down | 放大后拖动 1:1 跟手；缩放中心不漂；切 series 不串帧；Playwright 读像素断言掩膜与检测框在正确位置 |
+| **R9（阅片器核心）** ✅ | N-F1～F5、N-F13 + 相机抽象 + W/L 预设 / 翻转 / 探针 / 比例尺 / PageUp-Down | **已验收**：`npm run build` 通过；显式 Camera2D；fit-to-window；smoke 断言 `stack-viewport` |
 | **R10（假模型像真 + 输入约束）** | N-B9 phantom 升级（脊柱/气管/血管/预埋结节）+ lung_seg 体表 mask 算法 + det/seg 在肺内采样并命中预埋结节 + 3～5 例多模态 demo；N-B6 `input_constraints` 校验 + 前端灰掉不适用模型；N-B8 插件契约收口 | 演示时 Findings 跳层肉眼可见病灶；MR 序列上肺模型不可选；`models_hub` 仅 import `domain` |
 | **R11（产品力）** | Findings 接受/拒绝/修正三态进报告；任务中心筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y 收尾（aria-label、Dialog description） | 对照 OHIF/Lunit 截图逐项验收；`highdicom` 反解析 SR 树通过 |
 | **R12（上线准备）** | N-B5 流式上传 + 限额；`/metrics` + trace_id 贯通；N-B10 测试补强（并发/取消/时区/DICOM IO）；`generate:api:check` 进 CI；N-F9 CS3D 真浏览器验证 + tools 接入或明确降级为"评估结论" | CI：ruff+mypy+pytest+tsc+build+e2e 全绿；README 写清部署与升级（Alembic）流程 |
