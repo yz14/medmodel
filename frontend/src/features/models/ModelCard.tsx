@@ -2,13 +2,30 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
-import { formatMs, formatNumber } from '@/lib/format'
+import { formatMs, formatNumber, formatPercent } from '@/lib/format'
 import type { ModelSpec } from '@/types/api'
 
 const TYPE_LABEL: Record<string, string> = {
   segmentation: '分割',
   detection: '检测',
   classification: '分类',
+}
+
+function primaryMetric(model: ModelSpec): { label: string; value: string } | null {
+  const m = model.metrics
+  if (!m) return null
+  if (model.task_type === 'segmentation' && m.dice != null) {
+    return { label: 'Dice', value: formatNumber(m.dice, 3) }
+  }
+  if (model.task_type === 'classification') {
+    if (m.auc != null) return { label: 'AUC', value: formatNumber(m.auc, 3) }
+    if (m.accuracy != null) return { label: 'Accuracy', value: formatPercent(m.accuracy, 0) }
+  }
+  if (model.task_type === 'detection') {
+    if (m.map != null) return { label: 'mAP', value: formatNumber(m.map, 3) }
+    if (m.sensitivity != null) return { label: '敏感度', value: formatPercent(m.sensitivity, 0) }
+  }
+  return null
 }
 
 export function ModelCard({
@@ -20,6 +37,8 @@ export function ModelCard({
   onToggle: (enabled: boolean) => void
   toggling?: boolean
 }) {
+  const metric = primaryMetric(model)
+
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
@@ -34,7 +53,12 @@ export function ModelCard({
               {model.id} · v{model.version}
             </CardDescription>
           </div>
-          <Switch checked={model.enabled} onCheckedChange={onToggle} disabled={toggling} />
+          <Switch
+            checked={model.enabled}
+            onCheckedChange={onToggle}
+            disabled={toggling}
+            aria-label={`${model.enabled ? '停用' : '启用'} ${model.name}`}
+          />
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
@@ -52,10 +76,10 @@ export function ModelCard({
             预期延迟
             <div className="text-sm text-fg tabular-nums">{formatMs(model.expected_latency_ms)}</div>
           </div>
-          {model.metrics?.dice != null && (
+          {metric && (
             <div>
-              Dice
-              <div className="text-sm text-fg tabular-nums">{formatNumber(model.metrics.dice, 3)}</div>
+              {metric.label}
+              <div className="text-sm text-fg tabular-nums">{metric.value}</div>
             </div>
           )}
         </div>

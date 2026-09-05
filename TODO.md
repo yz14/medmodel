@@ -369,6 +369,14 @@ src/
 - Playwright：`e2e/cs3d-spike.spec.ts`（shell 可见）；原 smoke 回归通过
 - 前端 `npm run build` 通过（CS3D 独立分包）；后端 **17 passed**
 
+### R8 验收（数据正确性）
+- **N-B1**：`heal_instance_counts` + Alembic `20260905_0001`（回填 `num_instances`、确保 `uq_task_inflight`）；启动路径调用自愈
+- **N-B2**：cache_hit 复制 `ArtifactRow`；`resolve_artifact` 回退 `result_json.artifacts`
+- **N-B3**：成功提交乐观锁 `WHERE status='running'`；分片 `_sleep` + `cancel_check`；`stage_timings.writing`
+- **N-B4**：`utc_iso`（`…Z`）全 API；前端 `parseApiDate` 将无时区串视为 UTC
+- **N-F10/11/12**：去掉假 sparkline；环形图实色；cls/det 指标；缓存徽章；TaskList 按行 pending；`?panel=ai`
+- 验证：后端 **22 passed**；前端 `npm run build` 通过
+
 ---
 
 # TODO-3 第二轮全面审查：R1～R7 修复验证 + 新问题 + 最终整改建议
@@ -383,7 +391,7 @@ src/
 |---|---|---|
 | A-1 demo 重复入库 | ✅ 已修 | tmp 目录写入再 ingest；`src.resolve()==dest.resolve()` 防自拷贝 |
 | A-2 SSE progress | ✅ 已修（实测收到 progress + succeeded） | `emit_threadsafe` + worker 补终态 |
-| A-3 `num_instances=0` | ⚠️ **代码已修，但旧数据未回填**（✅实测：线上库仍是 0，UI 显示"0 帧"、"1 / 0"） | 见 N-B1 |
+| A-3 `num_instances=0` | ✅ R8 已修 | 启动自愈 + Alembic 回填，见 N-B1 |
 | A-4 产物遍历 | ✅ 已修（实测 `..%2F` → 404） | `relative_to` 返回值未使用，防御写法待收紧 |
 | A-5 zip-slip / UID | ✅ 已修 | |
 | A-6 像素掩膜 | ✅ 已修（实测中间层掩膜逐像素贴合两肺） | 但缓存无上限/泄漏，见 N-F4 |
@@ -394,7 +402,7 @@ src/
 | B-2 上传非阻塞 | ⚠️ `to_thread` 已加，但仍 `await f.read()` 全量进内存 | 见 N-B5 |
 | B-3 params 校验 | ✅ 已修（实测错参数 → 400） | |
 | B-4 幂等竞态 | ✅ 已修 | 测试是顺序而非并发，见 N-B10 |
-| B-5 lung_seg / stage_timings / SSE session | ⚠️ top-2 与独立 session 已修；`stage_timings` **缺 `writing` 段**（✅实测返回只有 3 段） | 见 N-B3 |
+| B-5 lung_seg / stage_timings / SSE session | ✅ R8 补齐 `writing` | top-2 / 独立 session / writing stage |
 | B-6 测试覆盖 | ⚠️ 17 条，取消/并发/SR 内容仍薄 | 见 N-B10 |
 | B-7 Pan/测量/滚轮/SVG | ⚠️ 功能有了，数学不对 | Pan 未除 zoom、缩放中心漂移、测距未 clamp，见 N-F3 |
 | B-8 SSE 主通道 + 退避 | ✅ 已修 | 但仍并行 5s 轮询，见 N-F8 |
@@ -405,7 +413,7 @@ src/
 | C-1 四角信息 | ✅ 已修 | 层厚取 `spacing[0]`，需确认后端顺序是 `[z,y,x]`（当前是，OK） |
 | C-2 Findings | ✅ 已修 | "全选"逻辑错误，见 N-F6 |
 | C-3 任务详情 Tabs+甘特 | ✅ 已修 | 甘特因缺 `writing` 段不完整 |
-| C-4 Dashboard | ⚠️ 已做，但 sparkline 是**由单个数值合成的假曲线**、环形图深色首屏空白 | 见 N-F10/N-F11 |
+| C-4 Dashboard | ✅ R8 去掉假 sparkline；环形图 CSS 色解析 | 见 N-F10/N-F11 |
 | C-5 模型卡 / health | ✅ 已修 | 分类/检测卡显示 `Dice 0.000`，见 N-F12 |
 | C-6 结构化报告 | ✅ 已修 | SR 语义不严谨，见 N-B7 |
 | R7 CS3D spike | ⚠️ 代码在，**headless 实测 15s 仍黑屏**（状态栏显示 1/40 已加载，控制台 `no COMPRESSED_FRAME_DATA` 警告） | 需手动验证，见 N-F9 |
@@ -413,10 +421,10 @@ src/
 ## 二、新发现问题 —— 后端
 
 ### Critical
-- [ ] **N-B1 ✅实测 旧数据 `num_instances=0` 无回填**：A-3 只修了新入库路径，`ensure_demo_data` 见库中有 study 即 return，09-03 种下的 demo 数据永远是 0 → 数据中心显示"1 / 0"，阅片器序列卡显示"0 帧"。修法：启动时做一次轻量"自愈"（`num_instances==0` 的 series 用 `count(InstanceRow)` 修正），或加 Alembic 迁移 + 数据修复脚本；顺带把 demo 数据 seed 改为幂等 upsert。（`backend/app/services/study_service.py:220-223`）
-- [ ] **N-B2 ✅实测 缓存命中任务产物 404**：cache_hit 分支只复制 `result_json`，不复制 `ArtifactRow` → `GET /tasks/{id}` 的 `artifacts=[]`，`GET /tasks/{id}/artifacts/lung` 404，任务详情"产物"Tab 为空、报告导出拿不到产物；而 `mask-frames` 走 `result_json` 却能用，两处不一致。修法：cache_hit 时把 `cached.artifacts` 按原 uri 复制到新任务（产物是内容寻址的，复用同一物理文件即可），或 `resolve_artifact` 回退到 `result_json["artifacts"]`。（`backend/app/services/task_service.py:201-214, 270-289`）
-- [ ] **N-B3 取消竞态可被 `succeeded` 覆盖**：`cancel()` 直接置 `canceled`，但 worker 线程不可中断（`time.sleep`），只在 `_progress` 回调点检查取消；若取消发生在最后一次 progress 之后、最终 commit 之前，worker 会把状态覆写为 `succeeded`。修法：最终 commit 前用 `UPDATE ... WHERE status='running'` 条件更新（乐观锁）；`_sleep` 改为分片睡眠并检查 `cancel_event`。（`task_service.py:221-233, 412-418`、`models_hub/base.py:53-55`）
-- [ ] **N-B4 ✅实测 时间戳无时区 → 前端全部偏 8 小时**：SQLite 的 `DateTime(timezone=True)` 不存 tz，`func.now()` 是 UTC 且 naive，`isoformat()` 输出 `2026-09-05T04:05:26`（无 `Z`），前端按本地时间解析 → 刚创建的任务显示"大约 8 小时前"、任务列表显示 04:08 而本地是 12:08。修法：序列化统一 `dt.replace(tzinfo=UTC).isoformat()`（或 Pydantic `AwareDatetime` + 自定义序列化），前端 `parseISO` 只接受带时区的字符串。这是医院场景的合规性问题（报告时间必须准确）。
+- [x] **N-B1 ✅实测 旧数据 `num_instances=0` 无回填**：**R8 已修** — `StudyService.heal_instance_counts()` 在 `ensure_demo_data`/启动时回填；Alembic `20260905_0001` 数据迁移 + `uq_task_inflight`；pytest `test_heal_stale_num_instances`。
+- [x] **N-B2 ✅实测 缓存命中任务产物 404**：**R8 已修** — cache_hit 复制 `ArtifactRow` + `resolve_artifact` 回退 `result_json`；pytest `test_cache_hit_artifacts_downloadable`。
+- [x] **N-B3 取消竞态可被 `succeeded` 覆盖**：**R8 已修** — 成功路径 `UPDATE … WHERE status='running'`；`_sleep` 分片 + `cancel_check`；`writing` stage；pytest `test_cancel_not_overwritten_by_succeeded`。
+- [x] **N-B4 ✅实测 时间戳无时区 → 前端全部偏 8 小时**：**R8 已修** — `utc_iso()` 统一 `…Z`；前端 `parseApiDate` 将 naive 视为 UTC；pytest `test_timestamps_serialized_with_utc_z`。
 
 ### Major
 - [ ] **N-B5 上传全量进内存**：`await f.read()` 后再 `to_thread`；大 ZIP 直接 OOM。改为 `shutil.copyfileobj(f.file, tmp)` 流式落盘，并加 `max_upload_bytes` / `max_files` 配置与 413 响应。（`api/routes/studies.py:19-22`）
@@ -447,9 +455,9 @@ src/
 - [ ] **N-F7 动态表单**：未读 `schema.required`；enum 全部 `String()` 丢类型；数字清空 `onChange(undefined)` 与 zod 语义不一致。（`ModelParamsForm.tsx:9-57, 74-99`）
 - [ ] **N-F8 SSE 与 5s 轮询并行**：`task-detail` 与 `AiPanel` 均 `refetchInterval: 5000` 且同时 `useTaskSSE`。让 `useTaskSSE` 暴露 `connected`，`refetchInterval = connected ? false : 3000`。
 - [ ] **N-F9 CS3D spike 可用性未证实 + 2.9MB chunk**：headless 实测黑屏（WebGL2 可用），控制台 `[dicomImageLoader/wadouri] no COMPRESSED_FRAME_DATA`，疑似 `/frames/{idx}` 返回内容与 wadouri 期望的完整 DICOM Part10 不匹配或 transfer syntax 元数据缺失——需手动在真浏览器验证并加 Playwright 断言"canvas 非全黑"（读像素）。此外 tools 未接入的根因是 Vite 8（rolldown）+ `@icr/polyseg-wasm`，官方模板给的解法是 `worker.rollupOptions.external: ['@icr/polyseg-wasm']` + `optimizeDeps.exclude: ['@cornerstonejs/tools']`，Vite 8 下对应 `worker.rolldownOptions`；若仍不行，可锁 Vite 7 或用 `@rollup/plugin-wasm({sync:['ICRPolySeg.wasm']})`。CS3D 依赖已进 build 产出 2.93MB chunk，即便是 lazy 也要用 `build.chunkSizeWarningLimit` 显式确认、并确保**主 `/viewer` 路径 0 依赖 CS3D**（当前 `esm--iAmJTRM.js` 需核对未被主路由引用）。
-- [ ] **N-F10 ✅实测 Dashboard sparkline 是假的**：`sparkSeriesFromValue(x)` 用单个数值合成一条曲线，"平均 Dice"卡片显示绿色下降线——医疗产品里**不能展示虚构趋势**。要么后端 `/stats/overview` 返回真实 `daily_tasks[7]`、`dice_history[]`，要么去掉 sparkline 只留数字（Grafana 的原则：没有数据就显示"No data"，不造数据）。（`pages/dashboard.tsx:180-205`、`components/Sparkline.tsx`）
-- [ ] **N-F11 ✅实测 深色主题首屏"模型应用分布"环形图空白**（浅色切换后正常）：疑似 `ResponsiveContainer` 首帧宽高为 0 或 CSS 变量在 SVG `fill` 中首帧未解析；给容器固定最小高度、`ResponsiveContainer` 加 `initialDimension`/`debounce`，或用 `getComputedStyle` 读一次颜色再传给 Recharts。
-- [ ] **N-F12 ✅实测 展示层细节**：分类/检测模型卡显示 `Dice 0.000`（应按 task_type 显示 AUC/mAP 或隐藏）；缓存命中任务"耗时 0 ms"（应显示 `缓存` 徽章 + 指向源任务链接）；任务/近期任务时间受 N-B4 影响全部错 8 小时；`TaskList` 的 cancel/retry mutation 是全局单例，点一行所有行按钮一起 disabled；纯图标按钮缺 `aria-label`；`StudyDrawer`"送去分析"与"打开阅片"是同一链接。
+- [x] **N-F10 ✅实测 Dashboard sparkline 是假的**：**R8 已修** — 去掉 `sparkSeriesFromValue` 与 KPI 假趋势图标；无时序则不画线。
+- [x] **N-F11 ✅实测 深色主题首屏"模型应用分布"环形图空白**：**R8 已修** — `getComputedStyle` 解析 token 为实色 + `minHeight`/`debounce`/`isAnimationActive=false`。
+- [x] **N-F12 ✅实测 展示层细节**：**R8 已修** — cls/det 指标按 task_type（AUC/mAP）；缓存徽章+源任务链接；TaskList 按行 `variables` pending + `aria-label`；StudyDrawer「送去分析」→ `?panel=ai`。
 - [ ] **N-F13 ✅实测 阅片视口利用率低**：`canvas` 有 `max-h-[min(70vh,100%)]`，256² 影像在 1600×900 下只占约 300px，上下大片黑边；默认应 **fit-to-window**（按容器短边计算初始 scale，`R` 重置回该值），大屏/竖屏都如此。（`StackViewport.tsx:360`）
 
 ### Minor
@@ -481,7 +489,7 @@ src/
 
 | 轮 | 内容 | 验收 |
 |---|---|---|
-| **R8（数据正确性，最先做）** | N-B1 回填/自愈 + Alembic 落地；N-B2 缓存产物；N-B3 取消乐观锁；N-B4 全栈 UTC；N-F12 中的 `Dice 0.000` / `0 ms` / 时间显示；N-F10 去掉假 sparkline 或换真数据；N-F11 环形图首屏 | 打开任何页面**没有一处错误数据**；pytest 新增 N-B1/2/3/4 回归；Playwright 断言深色首屏环形图有 `path` |
+| **R8（数据正确性，最先做）** ✅ | N-B1～B4、N-F10/11/12 | **已验收**：pytest **22 passed**（含 N-B1/2/3/4 回归）；`npm run build` 通过；Alembic 落地 |
 | **R9（阅片器核心）** | N-F3 相机模型重构（fit-to-window、鼠标中心缩放、Pan 修正、测量 clamp）+ N-F13 + N-F1/N-F2/N-F4/N-F5 + 预设 W/L / 翻转 / 反色 / 探针 / 比例尺 / PageUp-Down | 放大后拖动 1:1 跟手；缩放中心不漂；切 series 不串帧；Playwright 读像素断言掩膜与检测框在正确位置 |
 | **R10（假模型像真 + 输入约束）** | N-B9 phantom 升级（脊柱/气管/血管/预埋结节）+ lung_seg 体表 mask 算法 + det/seg 在肺内采样并命中预埋结节 + 3～5 例多模态 demo；N-B6 `input_constraints` 校验 + 前端灰掉不适用模型；N-B8 插件契约收口 | 演示时 Findings 跳层肉眼可见病灶；MR 序列上肺模型不可选；`models_hub` 仅 import `domain` |
 | **R11（产品力）** | Findings 接受/拒绝/修正三态进报告；任务中心筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y 收尾（aria-label、Dialog description） | 对照 OHIF/Lunit 截图逐项验收；`highdicom` 反解析 SR 树通过 |

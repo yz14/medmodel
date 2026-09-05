@@ -19,6 +19,7 @@ from app.imaging.dicom_io import (
 from app.infra.logging import get_logger
 from app.infra.orm import InstanceRow, SeriesRow, StudyRow
 from app.infra.storage import StorageService
+from app.infra.timeutil import utc_iso
 
 logger = get_logger(__name__)
 
@@ -217,7 +218,32 @@ class StudyService:
         self.db.flush()
         return study
 
+    def heal_instance_counts(self) -> int:
+        """Backfill series/study num_instances when stale (N-B1). Returns series fixed."""
+        fixed = 0
+        series_rows = self.db.scalars(select(SeriesRow)).all()
+        for series in series_rows:
+            real = int(
+                self.db.scalar(
+                    select(func.count()).select_from(InstanceRow).where(InstanceRow.series_uid == series.series_uid)
+                )
+                or 0
+            )
+            if series.num_instances != real:
+                series.num_instances = real
+                fixed += 1
+        # Recompute study totals
+        for study in self.db.scalars(select(StudyRow)).all():
+            series_list = self.db.scalars(select(SeriesRow).where(SeriesRow.study_uid == study.study_uid)).all()
+            study.num_series = len(series_list)
+            study.num_instances = sum(s.num_instances for s in series_list)
+        if fixed:
+            self.db.flush()
+            logger.info("healed_instance_counts", series_fixed=fixed)
+        return fixed
+
     def ensure_demo_data(self) -> StudyRow:
+        self.heal_instance_counts()
         existing = self.db.scalar(select(StudyRow).limit(1))
         if existing is not None:
             return existing
@@ -261,7 +287,7 @@ class StudyService:
             "institution": study.institution,
             "num_series": study.num_series,
             "num_instances": study.num_instances,
-            "created_at": study.created_at.isoformat() if study.created_at else None,
+            "created_at": utc_iso(study.created_at),
         }
         if include_series:
             data["series"] = [self.series_to_dict(s) for s in study.series]
@@ -280,6 +306,6 @@ class StudyService:
             "num_instances": series.num_instances,
             "spacing": [series.spacing_z, series.spacing_y, series.spacing_x],
             "thumbnail_url": f"/api/v1/series/{series.series_uid}/thumbnail",
-            "created_at": series.created_at.isoformat() if series.created_at else None,
+            "created_at": utc_iso(series.created_at),
         }
 

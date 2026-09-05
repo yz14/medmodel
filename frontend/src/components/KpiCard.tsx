@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { TrendingUp } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Sparkline } from '@/components/Sparkline'
 import { cn } from '@/lib/utils'
@@ -18,6 +17,7 @@ export function KpiCard({
   hint?: string
   icon?: ReactNode
   className?: string
+  /** Only pass real time-series; never synthesize decorative trends. */
   sparkline?: number[]
   tone?: 'default' | 'warning' | 'danger' | 'success'
 }) {
@@ -48,12 +48,7 @@ export function KpiCard({
           <p className="mt-2 text-2xl font-semibold tracking-tight text-fg-strong tabular-nums">
             {value}
           </p>
-          {hint && (
-            <p className={cn('mt-1.5 flex items-center gap-1 text-xs', hintTone)}>
-              <TrendingUp className="h-3 w-3" />
-              {hint}
-            </p>
-          )}
+          {hint && <p className={cn('mt-1.5 text-xs', hintTone)}>{hint}</p>}
           {sparkline && sparkline.length > 1 && (
             <div className="mt-2">
               <Sparkline values={sparkline} tone={sparkTone} />

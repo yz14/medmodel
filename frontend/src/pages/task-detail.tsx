@@ -167,7 +167,16 @@ export function TaskDetailPage() {
                 {t.error_message && <p className="text-xs text-danger">{t.error_message}</p>}
                 {t.cache_hit && (
                   <p className="text-xs text-info">
-                    命中幂等缓存{t.cached_from ? `（来自 ${t.cached_from.slice(0, 8)}）` : ''}
+                    命中幂等缓存
+                    {t.cached_from ? (
+                      <>
+                        （来自{' '}
+                        <Link to={`/tasks/${t.cached_from}`} className="underline">
+                          {t.cached_from.slice(0, 8)}…
+                        </Link>
+                        ）
+                      </>
+                    ) : null}
                   </p>
                 )}
               </CardContent>

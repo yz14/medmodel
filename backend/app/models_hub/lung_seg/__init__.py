@@ -54,7 +54,7 @@ class LungSegmentationModel(BaseFakeModel):
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
-        self._sleep(0.25)
+        self._sleep(0.25, ctx)
         series = ctx.series
         volume = load_series_volume(
             str(series.series_path) if series.series_path else None,
@@ -69,7 +69,7 @@ class LungSegmentationModel(BaseFakeModel):
         volume: np.ndarray = data["volume"]
         hu_low = float(ctx.params.get("hu_low", -1000))
         hu_high = float(ctx.params.get("hu_high", -400))
-        self._sleep(0.45)
+        self._sleep(0.45, ctx)
         mask = (volume >= hu_low) & (volume <= hu_high)
         # remove outside body roughly by center crop of air
         z, y, x = volume.shape
@@ -82,7 +82,7 @@ class LungSegmentationModel(BaseFakeModel):
             mask = morphology_open_close(mask, iterations=1)
             # Keep both lungs: top-2 components (do NOT collapse to single largest first)
             mask = keep_largest_n_components(mask, n=2)
-            self._sleep(0.35)
+            self._sleep(0.35, ctx)
         self._progress(ctx, 0.7, "infer", "连通域筛选完成")
         return {"mask": mask.astype(np.uint8), "volume": volume}
 
@@ -105,7 +105,7 @@ class LungSegmentationModel(BaseFakeModel):
             )
             for p in paths[:3]
         ]
-        self._sleep(0.2)
+        self._sleep(0.2, ctx)
         return InferenceResult(
             type=ResultType.SEGMENTATION,
             series_uid=ctx.series.series_uid,

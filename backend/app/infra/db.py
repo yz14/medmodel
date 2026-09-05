@@ -56,9 +56,11 @@ def _require_session_factory() -> sessionmaker[Session]:
 
 def init_db() -> None:
     from app.infra import orm  # noqa: F401
+    from app.infra.migrate import run_migrations
 
     eng = engine or configure_engine()
     Base.metadata.create_all(bind=eng)
+    run_migrations()
 
 
 @contextmanager

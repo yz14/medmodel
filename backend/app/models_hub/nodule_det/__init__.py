@@ -54,13 +54,13 @@ class NoduleDetectionModel(BaseFakeModel):
                 description="二维外接框列表",
             )
         ],
-        metrics={"dice": 0.0, "iou": 0.0, "hd95": 0.0, "asd": 0.0, "sensitivity": 0.92, "precision": 0.88},
+        metrics={"map": 0.78, "sensitivity": 0.92, "precision": 0.88, "froc": 0.85},
         expected_latency_ms=1500,
         tags=["detection", "nodule", "demo"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
-        self._sleep(0.15)
+        self._sleep(0.15, ctx)
         series = ctx.series
         volume = load_series_volume(
             str(series.series_path) if series.series_path else None,
@@ -79,7 +79,7 @@ class NoduleDetectionModel(BaseFakeModel):
         n = int(rng.integers(1, max_det + 1))
         spacing = ctx.series.spacing or (1.25, 1.0, 1.0)
         boxes: list[DetectionBox] = []
-        self._sleep(0.5)
+        self._sleep(0.5, ctx)
         for i in range(n):
             conf = float(rng.uniform(0.4, 0.98))
             if conf < thr:
@@ -107,7 +107,7 @@ class NoduleDetectionModel(BaseFakeModel):
                 )
             )
             self._progress(ctx, 0.4 + i * 0.08, "infer", f"候选框 #{i+1} score={conf:.2f}")
-        self._sleep(0.25)
+        self._sleep(0.25, ctx)
         return {"boxes": boxes}
 
     def postprocess(self, raw: dict[str, Any], ctx: InferenceContext) -> InferenceResult:
@@ -128,7 +128,7 @@ class NoduleDetectionModel(BaseFakeModel):
         ]
         out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         uri = str(out_path.resolve())
-        self._sleep(0.1)
+        self._sleep(0.1, ctx)
         return InferenceResult(
             type=ResultType.DETECTION,
             series_uid=ctx.series.series_uid,

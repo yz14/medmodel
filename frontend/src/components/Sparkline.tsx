@@ -50,16 +50,3 @@ export function Sparkline({
     </svg>
   )
 }
-
-/** Deterministic decorative series from a seed value (demo when no history API). */
-export function sparkSeriesFromValue(seed: number, n = 8): number[] {
-  const base = Math.max(0, seed)
-  const out: number[] = []
-  let x = base + 1
-  for (let i = 0; i < n; i++) {
-    x = (x * 17 + 23 + i * 3) % 97
-    out.push(base * 0.85 + (x / 97) * Math.max(base * 0.3, 1))
-  }
-  out[out.length - 1] = base
-  return out
-}

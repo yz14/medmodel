@@ -57,7 +57,7 @@ class NoduleSegmentationModel(BaseFakeModel):
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
-        self._sleep(0.2)
+        self._sleep(0.2, ctx)
         series = ctx.series
         volume = load_series_volume(
             str(series.series_path) if series.series_path else None,
@@ -90,7 +90,7 @@ class NoduleSegmentationModel(BaseFakeModel):
             coords = np.array([[z // 2, y // 2, x // 2]])
 
         label_mask = np.zeros((z, y, x), dtype=np.uint8)
-        self._sleep(0.4)
+        self._sleep(0.4, ctx)
         for label_id in range(1, n + 1):
             center_idx = coords[int(rng.integers(0, len(coords)))]
             diameter = float(rng.uniform(min_d, max_d))
@@ -108,7 +108,7 @@ class NoduleSegmentationModel(BaseFakeModel):
             blob = ndimage.binary_dilation(blob, iterations=1)
             label_mask[blob & (label_mask == 0)] = label_id
             self._progress(ctx, 0.35 + 0.1 * label_id, "infer", f"生成结节 #{label_id}")
-        self._sleep(0.3)
+        self._sleep(0.3, ctx)
         return {"label_mask": label_mask, "count": n}
 
     def postprocess(self, raw: dict[str, Any], ctx: InferenceContext) -> InferenceResult:
@@ -142,7 +142,7 @@ class NoduleSegmentationModel(BaseFakeModel):
                 media_type="application/x-png-stack",
             )
         ]
-        self._sleep(0.15)
+        self._sleep(0.15, ctx)
         return InferenceResult(
             type=ResultType.SEGMENTATION,
             series_uid=ctx.series.series_uid,

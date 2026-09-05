@@ -446,3 +446,145 @@ def test_storage_isolated_from_repo(client, tmp_path):
     # if repo storage exists from prior runs, our test UIDs should not appear there as the only source
     assert get_settings().storage_dir == storage
 
+
+def test_heal_stale_num_instances(client):
+    """N-B1: stale num_instances=0 is corrected by heal on ensure_demo_data / startup."""
+    c, _ = client
+    from sqlalchemy import select
+
+    from app.infra.db import SessionLocal
+    from app.infra.orm import SeriesRow, StudyRow
+    from app.services.study_service import StudyService
+
+    assert SessionLocal is not None
+    with SessionLocal() as db:
+        series = db.scalar(select(SeriesRow).limit(1))
+        assert series is not None
+        series.num_instances = 0
+        study = db.scalar(select(StudyRow).where(StudyRow.study_uid == series.study_uid))
+        assert study is not None
+        study.num_instances = 0
+        db.commit()
+
+        fixed = StudyService(db).heal_instance_counts()
+        db.commit()
+        assert fixed >= 1
+        db.refresh(series)
+        assert series.num_instances == 40
+
+    studies = c.get("/api/v1/studies").json()
+    assert studies["items"][0]["series"][0]["num_instances"] == 40
+
+
+def test_cache_hit_artifacts_downloadable(client):
+    """N-B2: cache_hit copies ArtifactRow so artifact download works."""
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()
+    series_uid = studies["items"][0]["series"][0]["series_uid"]
+
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {"smooth": False}},
+    )
+    assert create.status_code == 202
+    first_id = create.json()["task_id"]
+    first = _wait_task(c, first_id)
+    assert first["status"] == "succeeded"
+    assert first["artifacts"], first
+    art_name = first["artifacts"][0]["name"]
+    art1 = c.get(f"/api/v1/tasks/{first_id}/artifacts/{art_name}")
+    assert art1.status_code == 200
+
+    create2 = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {"smooth": False}},
+    )
+    assert create2.status_code == 202
+    body2 = create2.json()
+    assert body2["cache_hit"] is True
+    second_id = body2["task_id"]
+    second = c.get(f"/api/v1/tasks/{second_id}").json()
+    assert second["cache_hit"] is True
+    assert second["artifacts"], second
+    assert any(a["name"] == art_name for a in second["artifacts"])
+    art2 = c.get(f"/api/v1/tasks/{second_id}/artifacts/{art_name}")
+    assert art2.status_code == 200
+    assert len(art2.content) == len(art1.content)
+
+
+def test_cancel_not_overwritten_by_succeeded(client, monkeypatch):
+    """N-B3: cancel + optimistic lock — terminal status must be canceled, not succeeded."""
+    monkeypatch.setenv("VOXFLOW_TASK_FAKE_LATENCY_SCALE", "2.0")
+    get_settings.cache_clear()
+
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()
+    series_uid = studies["items"][0]["series"][0]["series_uid"]
+
+    create = c.post(
+        "/api/v1/tasks",
+        json={
+            "series_uid": series_uid,
+            "model_id": "nodule_seg",
+            "params": {"max_nodules": 5, "min_diameter_mm": 4.7},
+        },
+    )
+    assert create.status_code == 202, create.text
+    assert create.json().get("cache_hit") is False
+    task_id = create.json()["task_id"]
+
+    # Wait until worker has picked it up
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        st = c.get(f"/api/v1/tasks/{task_id}").json()["status"]
+        if st == "running":
+            break
+        if st in {"succeeded", "failed", "canceled"}:
+            break
+        time.sleep(0.02)
+
+    cancel = c.post(f"/api/v1/tasks/{task_id}/cancel")
+    assert cancel.status_code == 200
+
+    detail = _wait_task(c, task_id, timeout=30.0)
+    assert detail["status"] == "canceled", detail
+
+
+def test_timestamps_serialized_with_utc_z(client):
+    """N-B4: API datetimes end with Z (UTC), never naive local."""
+    from datetime import datetime, timezone
+
+    from app.infra.timeutil import utc_iso
+
+    naive = datetime(2026, 9, 5, 4, 5, 26)
+    assert utc_iso(naive) == "2026-09-05T04:05:26Z"
+    aware = datetime(2026, 9, 5, 12, 5, 26, tzinfo=timezone.utc)
+    assert utc_iso(aware) == "2026-09-05T12:05:26Z"
+
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()
+    created = studies["items"][0]["created_at"]
+    assert created.endswith("Z"), created
+    assert "+" not in created.split("T")[-1].replace("Z", "")
+
+    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 1.42}},
+    )
+    task_id = create.json()["task_id"]
+    detail = _wait_task(c, task_id)
+    assert detail["created_at"].endswith("Z")
+    if detail.get("finished_at"):
+        assert detail["finished_at"].endswith("Z")
+
+
+def test_cls_det_metrics_no_zero_dice(client):
+    """N-F12 companion: classification/detection specs expose AUC/mAP, not dice=0."""
+    c, _ = client
+    models = {m["id"]: m for m in c.get("/api/v1/models").json()["items"]}
+    assert "dice" not in models["nodule_cls"]["metrics"]
+    assert models["nodule_cls"]["metrics"].get("auc", 0) > 0
+    assert "dice" not in models["nodule_det"]["metrics"]
+    assert models["nodule_det"]["metrics"].get("map", 0) > 0
+

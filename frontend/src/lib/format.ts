@@ -1,10 +1,19 @@
 import { format, formatDistanceToNow, parseISO } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
+/** Treat naive ISO (no Z/offset) as UTC — matches backend SQLite + utc_iso contract. */
+export function parseApiDate(value: string): Date {
+  const trimmed = value.trim()
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
+    return parseISO(trimmed)
+  }
+  return parseISO(`${trimmed}Z`)
+}
+
 export function formatDateTime(value?: string | null) {
   if (!value) return '—'
   try {
-    return format(parseISO(value), 'yyyy-MM-dd HH:mm:ss')
+    return format(parseApiDate(value), 'yyyy-MM-dd HH:mm:ss')
   } catch {
     return value
   }
@@ -16,7 +25,7 @@ export function formatDate(value?: string | null) {
     return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
   }
   try {
-    return format(parseISO(value), 'yyyy-MM-dd')
+    return format(parseApiDate(value), 'yyyy-MM-dd')
   } catch {
     return value
   }
@@ -25,7 +34,7 @@ export function formatDate(value?: string | null) {
 export function formatRelative(value?: string | null) {
   if (!value) return '—'
   try {
-    return formatDistanceToNow(parseISO(value), { addSuffix: true, locale: zhCN })
+    return formatDistanceToNow(parseApiDate(value), { addSuffix: true, locale: zhCN })
   } catch {
     return value
   }

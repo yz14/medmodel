@@ -47,13 +47,13 @@ class NoduleClassificationModel(BaseFakeModel):
                 description="类别概率",
             )
         ],
-        metrics={"dice": 0.0, "iou": 0.0, "hd95": 0.0, "asd": 0.0, "auc": 0.91, "accuracy": 0.87},
+        metrics={"auc": 0.91, "accuracy": 0.87, "sensitivity": 0.89, "specificity": 0.84},
         expected_latency_ms=900,
         tags=["classification", "nodule", "demo"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
-        self._sleep(0.12)
+        self._sleep(0.12, ctx)
         series = ctx.series
         volume = load_series_volume(
             str(series.series_path) if series.series_path else None,
@@ -71,7 +71,7 @@ class NoduleClassificationModel(BaseFakeModel):
         logits = logits / temp
         exp = np.exp(logits - logits.max())
         probs = exp / exp.sum()
-        self._sleep(0.4)
+        self._sleep(0.4, ctx)
         self._progress(ctx, 0.6, "infer", "分类头前向完成")
         mid = data["mid_slice"]
         # fake CAM: brighten a central blob
@@ -97,7 +97,7 @@ class NoduleClassificationModel(BaseFakeModel):
         write_overlay_png(cam, cam_path)
         cam_uri = str(cam_path.resolve())
         top = max(predictions, key=lambda p: p.probability)
-        self._sleep(0.1)
+        self._sleep(0.1, ctx)
         return InferenceResult(
             type=ResultType.CLASSIFICATION,
             series_uid=ctx.series.series_uid,

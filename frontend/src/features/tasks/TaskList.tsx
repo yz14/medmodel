@@ -6,6 +6,7 @@ import { formatDateTime, formatMs, formatPercent, shortUid } from '@/lib/format'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { TaskSummary } from '@/types/api'
 
@@ -37,60 +38,103 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {tasks.map((task) => (
-            <TableRow key={task.task_id}>
-              <TableCell>
-                <Link to={`/tasks/${task.task_id}`} className="font-mono text-xs text-brand hover:underline">
-                  {shortUid(task.task_id, 10, 4)}
-                </Link>
-                <div className="mt-0.5 text-[10px] text-muted">series {shortUid(task.series_uid)}</div>
-              </TableCell>
-              <TableCell className="text-sm">{task.model_id}</TableCell>
-              <TableCell>
-                <StatusBadge status={task.status} />
-              </TableCell>
-              <TableCell className="min-w-36">
-                <div className="space-y-1">
-                  <Progress value={task.progress} />
-                  <div className="text-[10px] text-muted">
-                    {formatPercent(task.progress, 0)} · {task.stage || '—'}
-                  </div>
-                </div>
-              </TableCell>
-              <TableCell className="tabular-nums text-sm">{formatMs(task.runtime_ms)}</TableCell>
-              <TableCell className="text-xs text-muted">{formatDateTime(task.created_at)}</TableCell>
-              <TableCell>
-                <div className="flex gap-1">
+          {tasks.map((task) => {
+            const cancelPending =
+              cancelMutation.isPending && cancelMutation.variables === task.task_id
+            const retryPending =
+              retryMutation.isPending && retryMutation.variables === task.task_id
+
+            return (
+              <TableRow key={task.task_id}>
+                <TableCell>
                   <Link
                     to={`/tasks/${task.task_id}`}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"
+                    className="font-mono text-xs text-brand hover:underline"
                   >
-                    <Eye className="h-3.5 w-3.5" />
+                    {shortUid(task.task_id, 10, 4)}
                   </Link>
-                  {(task.status === 'queued' || task.status === 'running') && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => cancelMutation.mutate(task.task_id)}
-                      disabled={cancelMutation.isPending}
-                    >
-                      <XCircle className="h-3.5 w-3.5" />
-                    </Button>
+                  <div className="mt-0.5 text-[10px] text-muted">
+                    series {shortUid(task.series_uid)}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm">{task.model_id}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge status={task.status} />
+                    {task.cache_hit && (
+                      <Badge variant="secondary" className="font-normal">
+                        缓存
+                      </Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="min-w-36">
+                  <div className="space-y-1">
+                    <Progress value={task.progress} />
+                    <div className="text-[10px] text-muted">
+                      {formatPercent(task.progress, 0)} · {task.stage || '—'}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="tabular-nums text-sm">
+                  {task.cache_hit ? (
+                    <span className="text-muted">
+                      缓存
+                      {task.cached_from ? (
+                        <>
+                          {' · '}
+                          <Link
+                            to={`/tasks/${task.cached_from}`}
+                            className="text-brand hover:underline"
+                          >
+                            {shortUid(task.cached_from, 6, 4)}
+                          </Link>
+                        </>
+                      ) : null}
+                    </span>
+                  ) : (
+                    formatMs(task.runtime_ms)
                   )}
-                  {(task.status === 'failed' || task.status === 'canceled') && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => retryMutation.mutate(task.task_id)}
-                      disabled={retryMutation.isPending}
+                </TableCell>
+                <TableCell className="text-xs text-muted">
+                  {formatDateTime(task.created_at)}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Link
+                      to={`/tasks/${task.task_id}`}
+                      aria-label="查看任务详情"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-surface-2"
                     >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                      <Eye className="h-3.5 w-3.5" />
+                    </Link>
+                    {(task.status === 'queued' || task.status === 'running') && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="取消任务"
+                        onClick={() => cancelMutation.mutate(task.task_id)}
+                        disabled={cancelPending}
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {(task.status === 'failed' || task.status === 'canceled') && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="重试任务"
+                        onClick={() => retryMutation.mutate(task.task_id)}
+                        disabled={retryPending}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>

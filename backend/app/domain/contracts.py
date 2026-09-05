@@ -72,6 +72,7 @@ class InferenceContext:
     progress_cb: ProgressCallback
     latency_scale: float = 1.0
     stage_timings: dict[str, float] = field(default_factory=dict)
+    cancel_check: Callable[[], bool] | None = None
 
 
 @dataclass(slots=True)

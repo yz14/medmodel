@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import jsonschema
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.domain.contracts import InferenceContext, InferenceResult, ModelPlugin, SeriesMeta, WorkDir
@@ -18,6 +18,7 @@ from app.infra.logging import get_logger
 from app.infra.orm import ArtifactRow, SeriesRow, TaskLogRow, TaskRow
 from app.infra.queue import get_task_queue
 from app.infra.storage import StorageService
+from app.infra.timeutil import utc_iso
 from app.models_hub.registry import registry
 from app.services.model_service import ModelService
 from app.services.serializers import inference_result_to_dict
@@ -206,9 +207,22 @@ class TaskService:
             task.result_json = cached.result_json
             task.cache_hit = True
             task.cached_from = cached.task_id
-            task.runtime_ms = 0
+            # Prefer source runtime for display; 0 means "instant cache" — UI shows 缓存 badge
+            task.runtime_ms = cached.runtime_ms
+            task.stage_timings = cached.stage_timings
             task.started_at = datetime.now(timezone.utc)
             task.finished_at = datetime.now(timezone.utc)
+            # N-B2: reuse artifact URIs (content-addressed) on the new task row
+            for art in cached.artifacts:
+                self.db.add(
+                    ArtifactRow(
+                        task_id=task_id,
+                        name=art.name,
+                        uri=art.uri,
+                        media_type=art.media_type,
+                        size_bytes=art.size_bytes,
+                    )
+                )
             self._add_log(task_id, f"复用结果自任务 {cached.task_id}", stage=TaskStage.DONE.value)
             self.db.flush()
             return task
@@ -274,6 +288,18 @@ class TaskService:
         if task is None:
             raise KeyError(task_id)
         art = next((a for a in task.artifacts if a.name == name), None)
+        if art is None and task.result_json:
+            # Fallback: result_json artifacts (legacy / incomplete cache rows)
+            for ref in task.result_json.get("artifacts") or []:
+                if ref.get("name") == name and ref.get("uri"):
+                    art = ArtifactRow(
+                        task_id=task_id,
+                        name=name,
+                        uri=ref["uri"],
+                        media_type=ref.get("media_type") or "application/octet-stream",
+                        size_bytes=ref.get("size_bytes"),
+                    )
+                    break
         if art is None:
             raise FileNotFoundError(name)
         path = self.storage.resolve_uri(art.uri)
@@ -305,9 +331,9 @@ class TaskService:
             "stage_timings": task.stage_timings,
             "error_code": task.error_code,
             "error_message": task.error_message,
-            "created_at": task.created_at.isoformat() if task.created_at else None,
-            "started_at": task.started_at.isoformat() if task.started_at else None,
-            "finished_at": task.finished_at.isoformat() if task.finished_at else None,
+            "created_at": utc_iso(task.created_at),
+            "started_at": utc_iso(task.started_at),
+            "finished_at": utc_iso(task.finished_at),
             "artifacts": [
                 {
                     "name": a.name,
@@ -325,7 +351,7 @@ class TaskService:
                     "level": log.level,
                     "stage": log.stage,
                     "message": log.message,
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                    "created_at": utc_iso(log.created_at),
                 }
                 for log in task.logs
             ]
@@ -402,21 +428,39 @@ class InferenceOrchestrator:
                 params=task.params or {},
                 progress_cb=progress_cb,
                 latency_scale=get_settings().task_fake_latency_scale,
+                cancel_check=lambda: queue.is_canceled(task_id),
             )
             result = run_plugin(plugin, ctx)
             materialize_storage_uris(result, storage)
             result_dict = inference_result_to_dict(result)
-            t = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
-            if t is None:
+
+            # N-B3: optimistic lock — do not overwrite canceled
+            if queue.is_canceled(task_id):
+                raise RuntimeError("TASK_CANCELED")
+
+            finished = datetime.now(timezone.utc)
+            upd = db.execute(
+                update(TaskRow)
+                .where(
+                    TaskRow.task_id == task_id,
+                    TaskRow.status == TaskStatus.RUNNING.value,
+                )
+                .values(
+                    result_json=result_dict,
+                    status=TaskStatus.SUCCEEDED.value,
+                    stage=TaskStage.DONE.value,
+                    progress=1.0,
+                    message=result.summary,
+                    runtime_ms=result.runtime_ms,
+                    stage_timings=dict(ctx.stage_timings),
+                    finished_at=finished,
+                )
+            )
+            if upd.rowcount == 0:
+                # Canceled (or otherwise left running) — do not emit succeeded
+                db.rollback()
                 return
-            t.result_json = result_dict
-            t.status = TaskStatus.SUCCEEDED.value
-            t.stage = TaskStage.DONE.value
-            t.progress = 1.0
-            t.message = result.summary
-            t.runtime_ms = result.runtime_ms
-            t.stage_timings = dict(ctx.stage_timings)
-            t.finished_at = datetime.now(timezone.utc)
+
             for art in result.artifacts:
                 db.add(
                     ArtifactRow(
@@ -440,32 +484,68 @@ class InferenceOrchestrator:
             )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            t = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
-            if t is not None:
-                canceled = str(exc) == "TASK_CANCELED" or queue.is_canceled(task_id)
-                t.status = TaskStatus.CANCELED.value if canceled else TaskStatus.FAILED.value
-                t.error_code = "CANCELED" if canceled else "INFERENCE_ERROR"
-                t.error_message = "任务已取消" if canceled else str(exc)
-                t.error_traceback = None if canceled else traceback.format_exc()
-                t.message = t.error_message
-                t.finished_at = datetime.now(timezone.utc)
+            canceled = str(exc) == "TASK_CANCELED" or queue.is_canceled(task_id)
+            finished = datetime.now(timezone.utc)
+            if canceled:
+                db.execute(
+                    update(TaskRow)
+                    .where(
+                        TaskRow.task_id == task_id,
+                        TaskRow.status.in_([TaskStatus.RUNNING.value, TaskStatus.QUEUED.value, TaskStatus.CANCELED.value]),
+                    )
+                    .values(
+                        status=TaskStatus.CANCELED.value,
+                        error_code="CANCELED",
+                        error_message="任务已取消",
+                        error_traceback=None,
+                        message="任务已取消",
+                        finished_at=finished,
+                    )
+                )
                 db.add(
                     TaskLogRow(
                         task_id=task_id,
-                        level="warning" if canceled else "error",
-                        stage=t.stage,
-                        message=t.error_message or "",
+                        level="warning",
+                        stage="canceled",
+                        message="任务已取消",
                     )
                 )
                 db.commit()
                 queue.emit_threadsafe(
                     {
-                        "type": "canceled" if canceled else "failed",
+                        "type": "canceled",
                         "task_id": task_id,
-                        "status": t.status,
-                        "message": t.error_message,
+                        "status": TaskStatus.CANCELED.value,
+                        "message": "任务已取消",
                     }
                 )
-            logger.exception("task_failed", task_id=task_id)
+            else:
+                t = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
+                if t is not None and t.status == TaskStatus.RUNNING.value:
+                    t.status = TaskStatus.FAILED.value
+                    t.error_code = "INFERENCE_ERROR"
+                    t.error_message = str(exc)
+                    t.error_traceback = traceback.format_exc()
+                    t.message = t.error_message
+                    t.finished_at = finished
+                    db.add(
+                        TaskLogRow(
+                            task_id=task_id,
+                            level="error",
+                            stage=t.stage,
+                            message=t.error_message or "",
+                        )
+                    )
+                    db.commit()
+                    queue.emit_threadsafe(
+                        {
+                            "type": "failed",
+                            "task_id": task_id,
+                            "status": TaskStatus.FAILED.value,
+                            "message": str(exc),
+                        }
+                    )
+            if not canceled:
+                logger.exception("task_failed", task_id=task_id)
         finally:
             db.close()

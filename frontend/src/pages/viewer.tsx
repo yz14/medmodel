@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, PanelLeft, PanelRight, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { EmptyState } from '@/components/EmptyState'
@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils'
 
 export function ViewerPage() {
   const { studyId = '' } = useParams()
+  const [searchParams] = useSearchParams()
   const seriesUid = useViewerStore((s) => s.seriesUid)
   const setSeriesUid = useViewerStore((s) => s.setSeriesUid)
   const resetViewer = useViewerStore((s) => s.resetViewer)
@@ -25,9 +26,10 @@ export function ViewerPage() {
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1024px)')
     const apply = () => {
+      const wantAi = searchParams.get('panel') === 'ai'
       if (mq.matches) {
         setLeftOpen(false)
-        setRightOpen(false)
+        setRightOpen(wantAi)
       } else {
         setLeftOpen(true)
         setRightOpen(true)
@@ -36,7 +38,7 @@ export function ViewerPage() {
     apply()
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
-  }, [])
+  }, [searchParams])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

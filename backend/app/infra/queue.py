@@ -68,7 +68,9 @@ class TaskQueue:
         return unsubscribe
 
     async def emit(self, event: dict[str, Any]) -> None:
-        event.setdefault("ts", datetime.now(timezone.utc).isoformat())
+        from app.infra.timeutil import utc_iso
+
+        event.setdefault("ts", utc_iso(datetime.now(timezone.utc)))
         for listener in list(self._listeners):
             try:
                 result = listener(event)

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Database, Boxes, ListTodo, Target, ArrowRight, RefreshCw } from 'lucide-react'
@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { sparkSeriesFromValue } from '@/components/Sparkline'
+import { Badge } from '@/components/ui/badge'
 import type { TaskSummary } from '@/types/api'
 
 const DIST_LABEL: Record<string, string> = {
@@ -37,12 +37,19 @@ const DIST_LABEL: Record<string, string> = {
   classification: '分类',
 }
 
-const CHART_COLORS = [
-  'var(--brand)',
-  'var(--info)',
-  'var(--success)',
-  'var(--warning)',
-]
+/** Resolved once from CSS tokens so SVG fill works on dark first paint (N-F11). */
+function readChartColors(): string[] {
+  if (typeof window === 'undefined') {
+    return ['#3b82f6', '#0ea5e9', '#22c55e', '#f59e0b']
+  }
+  const styles = getComputedStyle(document.documentElement)
+  const keys = ['--brand', '--info', '--success', '--warning']
+  const fallback = ['#3b82f6', '#0ea5e9', '#22c55e', '#f59e0b']
+  return keys.map((k, i) => {
+    const raw = styles.getPropertyValue(k).trim()
+    return raw || fallback[i]
+  })
+}
 
 const columnHelper = createColumnHelper<TaskSummary>()
 
@@ -54,6 +61,11 @@ export function DashboardPage() {
   })
 
   const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }])
+  const [chartColors, setChartColors] = useState(readChartColors)
+
+  useEffect(() => {
+    setChartColors(readChartColors())
+  }, [])
 
   const recentTasks = overview.data?.recent_tasks ?? []
 
@@ -80,9 +92,17 @@ export function DashboardPage() {
       }),
       columnHelper.accessor('runtime_ms', {
         header: '耗时',
-        cell: (info) => (
-          <span className="tabular-nums">{formatMs(info.getValue())}</span>
-        ),
+        cell: (info) => {
+          const row = info.row.original
+          if (row.cache_hit) {
+            return (
+              <Badge variant="secondary" className="font-normal">
+                缓存
+              </Badge>
+            )
+          }
+          return <span className="tabular-nums">{formatMs(info.getValue())}</span>
+        },
       }),
       columnHelper.accessor('created_at', {
         header: '时间',
@@ -177,21 +197,18 @@ export function DashboardPage() {
           value={formatNumber(data.kpis.study_count)}
           hint="已入库 Study"
           icon={<Database className="h-5 w-5" />}
-          sparkline={sparkSeriesFromValue(data.kpis.study_count)}
         />
         <KpiCard
           title="可用模型"
           value={formatNumber(data.kpis.model_count)}
           hint={`已注册 ${data.registered_models}`}
           icon={<Boxes className="h-5 w-5" />}
-          sparkline={sparkSeriesFromValue(data.kpis.model_count || data.registered_models)}
         />
         <KpiCard
           title="今日推理任务"
           value={formatNumber(data.kpis.today_tasks)}
           hint={`队列 ${queue.queued}/${queue.running}`}
           icon={<ListTodo className="h-5 w-5" />}
-          sparkline={sparkSeriesFromValue(data.kpis.today_tasks + queueLoad)}
           tone={queueTone}
         />
         <KpiCard
@@ -199,11 +216,6 @@ export function DashboardPage() {
           value={formatNumber(data.kpis.avg_dice, 3)}
           hint="分割模型均值"
           icon={<Target className="h-5 w-5" />}
-          sparkline={
-            modelMetrics.length
-              ? modelMetrics.map((m) => Number(m.dice ?? 0))
-              : sparkSeriesFromValue(data.kpis.avg_dice * 100)
-          }
           tone={data.kpis.avg_dice > 0 && data.kpis.avg_dice < 0.8 ? 'warning' : 'success'}
         />
       </div>
@@ -254,25 +266,37 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle>模型应用分布</CardTitle>
           </CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                  {chartData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    color: 'var(--fg)',
-                  }}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+          <CardContent className="min-h-[16rem] h-64">
+            {chartData.every((d) => d.value === 0) ? (
+              <EmptyState title="暂无分布数据" className="py-10" />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minHeight={220} debounce={50}>
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={3}
+                    isAnimationActive={false}
+                  >
+                    {chartData.map((_, i) => (
+                      <Cell key={i} fill={chartColors[i % chartColors.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      color: 'var(--fg)',
+                    }}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
