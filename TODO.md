@@ -384,6 +384,14 @@ src/
 - **PACS 工具**：W/L 预设、H/V 翻转、反色、HU 探针、比例尺、PageUp/Down/Home/End、中键平移/右键窗宽
 - 验证：前端 `npm run build` 通过；smoke 增加 `stack-viewport` 可见断言
 
+### R10 验收（假模型像真 + 输入约束）
+- **N-B9 phantom**：脊柱 / 气管（与肺隔离，避免 air-leak）/ 血管 / 床板 / 预埋结节 + `phantom_meta.json`；肺严格在体表内
+- **lung_seg**：`estimate_body_mask` + `estimate_lung_mask`（HU ∩ filled body → top-2 CC）；det/seg 在肺内采样并优先命中预埋结节
+- **多模态 demo**：`DEMO-CT-CHEST` / `DEMO-CT-HEAD` / `DEMO-MR-BRAIN` / `DEMO-DR-CHEST`
+- **N-B6**：`check_input_constraints` → 400 `UNSUPPORTED_INPUT`；前端 `modelCompatibility` + AiPanel 灰掉不适用模型
+- **N-B8**：`models_hub` 仅依赖 `domain` + 本地 helpers；volume 由 orchestrator 预载进 `ctx`
+- 验证：后端 **26 passed**；前端 `npm run build` 通过
+
 ---
 
 # TODO-3 第二轮全面审查：R1～R7 修复验证 + 新问题 + 最终整改建议
@@ -405,7 +413,7 @@ src/
 | A-7 帧缓存 | ⚠️ 修得不完善 | series 切换时旧 promise 污染新缓存，见 N-F1 |
 | A-8 统一错误体 | ✅ 已修（实测 422/400/404 均为 `{code,message,details,trace_id}`） | |
 | A-9 测试隔离 | ✅ 已修 | |
-| B-1 分层 | ⚠️ 核心已修，残留 `models_hub → infra.logging` 依赖 | 见 N-B8 |
+| B-1 分层 | ✅ R10 已修 | `models_hub` 仅 domain；volume 预载进 ctx，见 N-B8 |
 | B-2 上传非阻塞 | ⚠️ `to_thread` 已加，但仍 `await f.read()` 全量进内存 | 见 N-B5 |
 | B-3 params 校验 | ✅ 已修（实测错参数 → 400） | |
 | B-4 幂等竞态 | ✅ 已修 | 测试是顺序而非并发，见 N-B10 |
@@ -435,14 +443,10 @@ src/
 
 ### Major
 - [ ] **N-B5 上传全量进内存**：`await f.read()` 后再 `to_thread`；大 ZIP 直接 OOM。改为 `shutil.copyfileobj(f.file, tmp)` 流式落盘，并加 `max_upload_bytes` / `max_files` 配置与 413 响应。（`api/routes/studies.py:19-22`）
-- [ ] **N-B6 未校验 `input_constraints`**：`create_task` 只查模型存在/启用，不校验 `series.modality ∈ spec.modalities`、`num_instances ≥ min_slices`、`body_part`。MONAI Label 的 `/info` 契约正是为此服务的。返回 400 `UNSUPPORTED_INPUT`，前端 AI 面板据此**灰掉不适用模型**（而不是让用户跑完再失败）。（`task_service.py:127-142`）
+- [x] **N-B6 未校验 `input_constraints`**：**R10 已修** — `check_input_constraints` 在 `create_task`；400 `UNSUPPORTED_INPUT`；前端 `modelCompatibility.ts` + AiPanel 灰掉；pytest MR/头颈拒绝肺模型。
 - [ ] **N-B7 报告/DICOM 导出语义与健壮性**：①`confidence`/`dice` 被塞进 TID1500 的 Measurement（`NoUnits`），标准做法是 `QualitativeEvaluation` 或用 `SCT 246501002 (Probability)` 概念编码；②越界 `slice_index` 的框静默 `continue`；③`_load_series_images` 一次读全序列；④导出前未校验 `len(source_images)==volume.shape[0]`。（`imaging/dicom_export.py:220-257, 299-365`、`services/report_service.py:157-221, 310-323`）
-- [ ] **N-B8 分层残留**：`models_hub/__init__.py`、`registry.py`、`base.py` 仍 import `app.infra.logging` / `app.imaging.dicom_io`。插件应只依赖 `domain`：把 logger 通过 `InferenceContext.logger` 注入，体数据读取由 Orchestrator 在 `preprocess` 前完成并放进 `ctx`（MONAI Deploy 的 Operator 输入即如此）。
-- [ ] **N-B9 假模型"不像真"（设计目标未达成，✅实测截图可见）**：
-  - `lung_seg` 用**硬编码椭圆**当体表 mask（`(yy-cy)/(y*0.45)`），比 phantom 体表大 → 掩膜出现**一圈环绕体表的假阳性环**，且换任何真数据都不成立。标准做法：`body = fill_holes(largest_cc(volume > -500))`，`lung = (volume < -400) & body` 再去掉与边界连通的分量、取 top-2。（`models_hub/lung_seg/__init__.py:73-79`）
-  - `nodule_det` / `nodule_seg` 结节位置随机落在图像中心附近（实测 det-1/det-2 落在纵隔上，不在肺内），设计文档写的是"在肺内随机放置"。应先算肺 mask 再从 mask 体素中采样中心。
-  - demo phantom 本身太简陋（均匀噪声椭圆 + 两个椭圆肺，无气管/血管/脊柱/床板），演示给医院时说服力差。建议 phantom 加：脊柱（高 HU 圆）、气管（正中小圆 -1000）、若干"血管"随机管状结构（+50 HU）、1～3 个预埋结节（+30 HU 高斯球，并让 det/seg 假模型**真的去找它们**，这样"AI 结果"就和影像一致，Findings 跳转后肉眼可见病灶）。
-  - 分类/检测模型的 `metrics` 里给了 `dice=0.0`，应分别给 AUC/敏感度/特异度 与 mAP/FROC，并让 `ModelSpec.metrics` 成为按 task_type 的判别联合。
+- [x] **N-B8 分层残留**：**R10 已修** — 插件/`registry`/`base` 不再 import `infra.logging` / `imaging.dicom_io`；stdlib logging；orchestrator 预载 `ctx.volume` + `phantom_meta`。
+- [x] **N-B9 假模型"不像真"**：**R10 已修** — HU 体表/肺 mask；det/seg 肺内采样 + 预埋结节；phantom 含脊柱/气管/血管/床板；4 例多模态 demo；气管与肺隔离修复 fill_holes 泄漏。
 - [ ] **N-B10 测试仍薄**：取消只断言状态 ∈ 集合；幂等是顺序调用而非 `gather` 并发；SR/GSPS 只查 SOPClassUID 不解析内容；`dicom_io`/`mask_utils` 无单测。至少补：并发幂等、取消后不再收到 `succeeded`、缓存命中产物可下载（N-B2 回归）、时区序列化（N-B4 回归）、无 preamble DICOM、`highdicom` 反解析 SR 树。
 
 ### Minor
@@ -478,7 +482,7 @@ src/
 1. **阅片器是核心，也是短板**：视口利用率（N-F13）、相机数学（N-F3）、缺"适应窗口 / 1:1 / 翻转 / 反色 / 预设 W/L（肺窗/纵隔窗/骨窗）"这些 PACS 必备按钮、缺右键/中键工具绑定、缺键盘 PageUp/PageDown 与 Home/End 切层、缺鼠标位置 HU 值探针、缺比例尺。OHIF 的工具条是标杆：主工具（W/L、Pan、Zoom、StackScroll）互斥高亮 + 预设 W/L 下拉 + 布局切换 + 测量组。
 2. **AI 结果可信度呈现**：Findings 里"Lung 95%"把 Dice 当置信度展示会误导医生；分割应显示体积/层范围，检测显示置信度/直径，分类显示概率条 + CAM。每个 finding 加"接受 / 拒绝 / 修正"三态（Aidoc/Lunit 的 read-workflow 标准），并进报告。
 3. **任务中心**：缺按模型/日期/患者筛选与搜索、缺批量操作、缺失败原因一眼可见（error_code 徽章 + hover 详情）；日志流应带 level 色与阶段过滤（已在 C-3 承诺）。
-4. **数据中心**：只有 1 条 demo 数据看不出表格能力；应内置生成 3～5 例不同模态/部位的 demo（CT 胸 / CT 头 / MR 脑 / DR 胸），既检验 Hanging Protocol 匹配，也让 `input_constraints` 校验（N-B6）有意义。
+4. **数据中心**：✅ R10 已内置 4 例多模态 demo（CT 胸/头、MR 脑、DR 胸），并配合 `input_constraints`（N-B6）。
 5. **全站**：时间 8 小时偏差（N-B4）、假 sparkline（N-F10）、`Dice 0.000`、"0 帧"这类**一眼可见的错误数据**，比任何视觉打磨都更损害专业感，应最先修。
 
 ## 五、架构/流程评估
@@ -498,7 +502,7 @@ src/
 |---|---|---|
 | **R8（数据正确性，最先做）** ✅ | N-B1～B4、N-F10/11/12 | **已验收**：pytest **22 passed**（含 N-B1/2/3/4 回归）；`npm run build` 通过；Alembic 落地 |
 | **R9（阅片器核心）** ✅ | N-F1～F5、N-F13 + 相机抽象 + W/L 预设 / 翻转 / 探针 / 比例尺 / PageUp-Down | **已验收**：`npm run build` 通过；显式 Camera2D；fit-to-window；smoke 断言 `stack-viewport` |
-| **R10（假模型像真 + 输入约束）** | N-B9 phantom 升级（脊柱/气管/血管/预埋结节）+ lung_seg 体表 mask 算法 + det/seg 在肺内采样并命中预埋结节 + 3～5 例多模态 demo；N-B6 `input_constraints` 校验 + 前端灰掉不适用模型；N-B8 插件契约收口 | 演示时 Findings 跳层肉眼可见病灶；MR 序列上肺模型不可选；`models_hub` 仅 import `domain` |
+| **R10（假模型像真 + 输入约束）** ✅ | N-B9 phantom 升级 + lung_seg 体表 mask + det/seg 肺内采样 + 多模态 demo；N-B6 约束校验 + 前端灰掉；N-B8 插件契约收口 | **已验收**：pytest **26 passed**；`npm run build` 通过；MR 上肺模型 `UNSUPPORTED_INPUT` |
 | **R11（产品力）** | Findings 接受/拒绝/修正三态进报告；任务中心筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y 收尾（aria-label、Dialog description） | 对照 OHIF/Lunit 截图逐项验收；`highdicom` 反解析 SR 树通过 |
 | **R12（上线准备）** | N-B5 流式上传 + 限额；`/metrics` + trace_id 贯通；N-B10 测试补强（并发/取消/时区/DICOM IO）；`generate:api:check` 进 CI；N-F9 CS3D 真浏览器验证 + tools 接入或明确降级为"评估结论" | CI：ruff+mypy+pytest+tsc+build+e2e 全绿；README 写清部署与升级（Alembic）流程 |
 

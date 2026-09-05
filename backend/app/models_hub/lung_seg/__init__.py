@@ -13,25 +13,21 @@ from app.domain.contracts import (
     ModelSpec,
 )
 from app.domain.enums import MaskEncoding, Modality, ResultType, TaskType
-from app.imaging.mask_utils import (
-    keep_largest_n_components,
-    morphology_open_close,
-    volume_mm3,
-    write_png_mask_stack,
-)
-from app.models_hub.base import BaseFakeModel, load_series_volume, stable_seed
+from app.models_hub.anatomy import estimate_lung_mask, volume_mm3
+from app.models_hub.base import BaseFakeModel, require_volume
+from app.models_hub.io_png import write_png_mask_stack
 
 
 class LungSegmentationModel(BaseFakeModel):
     spec = ModelSpec(
         id="lung_seg",
         name="肺实质分割",
-        version="1.0.0",
+        version="1.1.0",
         task_type=TaskType.SEGMENTATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="基于 HU 阈值与形态学的假肺分割模型，用于演示分割叠加流程。",
-        input_constraints={"modality": ["CT"], "min_slices": 8},
+        description="基于体表连通域 + HU 阈值的假肺分割（无硬编码椭圆）。",
+        input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
             "properties": {
@@ -55,13 +51,7 @@ class LungSegmentationModel(BaseFakeModel):
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
         self._sleep(0.25, ctx)
-        series = ctx.series
-        volume = load_series_volume(
-            str(series.series_path) if series.series_path else None,
-            series.rows,
-            series.cols,
-            max(series.num_instances, 8),
-        )
+        volume = require_volume(ctx)
         self._progress(ctx, 0.2, "preprocess", f"已加载体数据 {volume.shape}")
         return {"volume": volume}
 
@@ -69,28 +59,16 @@ class LungSegmentationModel(BaseFakeModel):
         volume: np.ndarray = data["volume"]
         hu_low = float(ctx.params.get("hu_low", -1000))
         hu_high = float(ctx.params.get("hu_high", -400))
+        smooth = bool(ctx.params.get("smooth", True))
         self._sleep(0.45, ctx)
-        mask = (volume >= hu_low) & (volume <= hu_high)
-        # remove outside body roughly by center crop of air
-        z, y, x = volume.shape
-        yy, xx = np.ogrid[:y, :x]
-        cy, cx = y / 2, x / 2
-        body = ((yy - cy) / (y * 0.45)) ** 2 + ((xx - cx) / (x * 0.4)) ** 2 <= 1.0
-        mask = mask & body[None, :, :]
-        self._progress(ctx, 0.55, "infer", "阈值分割完成")
-        if ctx.params.get("smooth", True):
-            mask = morphology_open_close(mask, iterations=1)
-            # Keep both lungs: top-2 components (do NOT collapse to single largest first)
-            mask = keep_largest_n_components(mask, n=2)
-            self._sleep(0.35, ctx)
-        self._progress(ctx, 0.7, "infer", "连通域筛选完成")
+        mask = estimate_lung_mask(volume, hu_low=hu_low, hu_high=hu_high, smooth=smooth)
+        self._progress(ctx, 0.7, "infer", "肺实质提取完成")
         return {"mask": mask.astype(np.uint8), "volume": volume}
 
     def postprocess(self, raw: dict[str, Any], ctx: InferenceContext) -> InferenceResult:
         mask: np.ndarray = raw["mask"]
         out_dir = ctx.work_dir.output_dir / "lung"
         paths = write_png_mask_stack(mask * 255, out_dir, prefix="lung")
-        # store as binary label 1
         label_stack = (mask > 0).astype(np.uint8)
         write_png_mask_stack(label_stack, out_dir, prefix="label")
         spacing = ctx.series.spacing
@@ -130,4 +108,3 @@ class LungSegmentationModel(BaseFakeModel):
 
 
 plugin = LungSegmentationModel()
-

@@ -13,20 +13,20 @@ from app.domain.contracts import (
     ModelSpec,
 )
 from app.domain.enums import Modality, ResultType, TaskType
-from app.imaging.mask_utils import write_overlay_png
-from app.models_hub.base import BaseFakeModel, load_series_volume, stable_seed
+from app.models_hub.base import BaseFakeModel, require_volume, stable_seed
+from app.models_hub.io_png import write_overlay_png
 
 
 class NoduleClassificationModel(BaseFakeModel):
     spec = ModelSpec(
         id="nodule_cls",
         name="结节良恶性分类",
-        version="1.0.0",
+        version="1.1.0",
         task_type=TaskType.CLASSIFICATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
         description="以 series_uid 为种子的确定性伪分类，输出良/恶性概率与 CAM 示意叠加。",
-        input_constraints={"modality": ["CT"]},
+        input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
             "properties": {
@@ -54,15 +54,15 @@ class NoduleClassificationModel(BaseFakeModel):
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
         self._sleep(0.12, ctx)
-        series = ctx.series
-        volume = load_series_volume(
-            str(series.series_path) if series.series_path else None,
-            series.rows,
-            series.cols,
-            max(series.num_instances, 8),
-        )
-        mid = volume[volume.shape[0] // 2]
-        return {"mid_slice": mid, "volume": volume}
+        volume = require_volume(ctx)
+        planted = list(ctx.extras.get("nodules") or [])
+        if planted:
+            mid_z = int(planted[0]["z"])
+            mid_z = max(0, min(volume.shape[0] - 1, mid_z))
+        else:
+            mid_z = volume.shape[0] // 2
+        mid = volume[mid_z]
+        return {"mid_slice": mid, "volume": volume, "planted": planted, "mid_z": mid_z}
 
     def infer(self, data: dict[str, Any], ctx: InferenceContext) -> dict[str, Any]:
         rng = np.random.default_rng(stable_seed(ctx.series.series_uid, self.spec.id))
@@ -74,10 +74,15 @@ class NoduleClassificationModel(BaseFakeModel):
         self._sleep(0.4, ctx)
         self._progress(ctx, 0.6, "infer", "分类头前向完成")
         mid = data["mid_slice"]
-        # fake CAM: brighten a central blob
         y, x = mid.shape
         yy, xx = np.ogrid[:y, :x]
-        cam = np.exp(-(((yy - y / 2) / (y * 0.12)) ** 2 + ((xx - x * 0.58) / (x * 0.1)) ** 2))
+        planted = data.get("planted") or []
+        if planted:
+            cy = float(planted[0]["y"])
+            cx = float(planted[0]["x"])
+        else:
+            cy, cx = y / 2, x * 0.58
+        cam = np.exp(-(((yy - cy) / (y * 0.12)) ** 2 + ((xx - cx) / (x * 0.1)) ** 2))
         return {
             "probs": probs.astype(float),
             "labels": ["Benign", "Malignant"],
@@ -119,4 +124,3 @@ class NoduleClassificationModel(BaseFakeModel):
 
 
 plugin = NoduleClassificationModel()
-

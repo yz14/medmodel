@@ -73,6 +73,10 @@ class InferenceContext:
     latency_scale: float = 1.0
     stage_timings: dict[str, float] = field(default_factory=dict)
     cancel_check: Callable[[], bool] | None = None
+    """Preloaded volume (Orchestrator fills; plugins must not read DICOM themselves)."""
+    volume: Any | None = None
+    """Sidecar extras e.g. planted nodules from phantom_meta.json."""
+    extras: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -15,20 +15,21 @@ from app.domain.contracts import (
     ModelSpec,
 )
 from app.domain.enums import MaskEncoding, Modality, ResultType, TaskType
-from app.imaging.mask_utils import gaussian_blob, volume_mm3, write_png_mask_stack
-from app.models_hub.base import BaseFakeModel, load_series_volume, stable_seed
+from app.models_hub.anatomy import estimate_lung_mask, gaussian_blob, sample_lung_centers, volume_mm3
+from app.models_hub.base import BaseFakeModel, require_volume, stable_seed
+from app.models_hub.io_png import write_png_mask_stack
 
 
 class NoduleSegmentationModel(BaseFakeModel):
     spec = ModelSpec(
         id="nodule_seg",
         name="肺结节分割",
-        version="1.0.0",
+        version="1.1.0",
         task_type=TaskType.SEGMENTATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="在肺实质内放置 1–3 个平滑高斯球，模拟结节分割结果。",
-        input_constraints={"modality": ["CT"], "min_slices": 8},
+        description="在肺实质内分割结节；优先命中 phantom 预埋结节。",
+        input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
             "properties": {
@@ -58,14 +59,7 @@ class NoduleSegmentationModel(BaseFakeModel):
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:
         self._sleep(0.2, ctx)
-        series = ctx.series
-        volume = load_series_volume(
-            str(series.series_path) if series.series_path else None,
-            series.rows,
-            series.cols,
-            max(series.num_instances, 8),
-        )
-        return {"volume": volume}
+        return {"volume": require_volume(ctx)}
 
     def infer(self, data: dict[str, Any], ctx: InferenceContext) -> dict[str, Any]:
         volume: np.ndarray = data["volume"]
@@ -78,22 +72,22 @@ class NoduleSegmentationModel(BaseFakeModel):
             )
         )
         max_n = int(ctx.params.get("max_nodules", 3))
-        n = int(rng.integers(1, max_n + 1))
+        planted = list(ctx.extras.get("nodules") or [])
+        n = min(max_n, max(1, len(planted) or int(rng.integers(1, max_n + 1))))
         min_d = float(ctx.params.get("min_diameter_mm", 4.0))
         max_d = float(ctx.params.get("max_diameter_mm", 18.0))
         spacing = ctx.series.spacing or (1.25, 1.0, 1.0)
 
-        # approximate lung region by HU
-        lung = (volume > -1000) & (volume < -400)
-        coords = np.argwhere(lung)
-        if coords.size == 0:
-            coords = np.array([[z // 2, y // 2, x // 2]])
+        lung = estimate_lung_mask(volume)
+        centers = sample_lung_centers(lung, rng, n, prefer=planted)
 
         label_mask = np.zeros((z, y, x), dtype=np.uint8)
         self._sleep(0.4, ctx)
-        for label_id in range(1, n + 1):
-            center_idx = coords[int(rng.integers(0, len(coords)))]
-            diameter = float(rng.uniform(min_d, max_d))
+        for label_id, center in enumerate(centers, start=1):
+            if planted and label_id <= len(planted):
+                diameter = float(planted[label_id - 1].get("diameter_mm") or rng.uniform(min_d, max_d))
+            else:
+                diameter = float(rng.uniform(min_d, max_d))
             radius_vox = (
                 max(diameter / (2 * spacing[0]), 1.0),
                 max(diameter / (2 * spacing[1]), 1.0),
@@ -101,12 +95,13 @@ class NoduleSegmentationModel(BaseFakeModel):
             )
             blob = gaussian_blob(
                 (z, y, x),
-                (float(center_idx[0]), float(center_idx[1]), float(center_idx[2])),
+                (float(center[0]), float(center[1]), float(center[2])),
                 radius_vox,
                 rng,
+                jitter=not bool(planted),
             )
             blob = ndimage.binary_dilation(blob, iterations=1)
-            label_mask[blob & (label_mask == 0)] = label_id
+            label_mask[blob & (label_mask == 0) & lung] = label_id
             self._progress(ctx, 0.35 + 0.1 * label_id, "infer", f"生成结节 #{label_id}")
         self._sleep(0.3, ctx)
         return {"label_mask": label_mask, "count": n}
@@ -156,4 +151,3 @@ class NoduleSegmentationModel(BaseFakeModel):
 
 
 plugin = NoduleSegmentationModel()
-

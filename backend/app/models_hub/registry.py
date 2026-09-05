@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from app.domain.contracts import ModelPlugin, ModelSpec
-from app.infra.logging import get_logger
+import logging
 
-logger = get_logger(__name__)
+from app.domain.contracts import ModelPlugin, ModelSpec
+
+logger = logging.getLogger(__name__)
 
 
 class ModelRegistry:
@@ -15,7 +16,7 @@ class ModelRegistry:
         if model_id in self._plugins:
             raise ValueError(f"Model already registered: {model_id}")
         self._plugins[model_id] = plugin
-        logger.info("model_registered", model_id=model_id, version=plugin.spec.version)
+        logger.info("model_registered model_id=%s version=%s", model_id, plugin.spec.version)
 
     def get(self, model_id: str) -> ModelPlugin:
         try:
@@ -37,4 +38,3 @@ class ModelRegistry:
 
 
 registry = ModelRegistry()
-

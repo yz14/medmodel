@@ -241,43 +241,57 @@ def write_synthetic_dicom_series(
     patient_name: str = "Demo^Patient",
     patient_id: str = "DEMO001",
     series_description: str = "Synthetic Chest CT",
+    study_description: str = "VoxFlow Demo Study",
     seed: int = 7,
-) -> list[Path]:
-    """Generate a fake chest CT-like DICOM series for demo / offline use."""
+    anatomy: str = "chest",
+) -> tuple[list[Path], dict]:
+    """Generate a synthetic DICOM series.
+
+    anatomy:
+      - chest: CT chest with lungs, spine, trachea, vessels, planted nodules
+      - head: CT head (soft tissue + bone ring)
+      - brain_mr: MR-like brain phantom
+      - chest_dr: single-slice projection-like chest
+
+    Returns (paths, meta) where meta may include planted nodules for fake models.
+    """
+    import json
+
     output_dir.mkdir(parents=True, exist_ok=True)
     study_uid = study_uid or generate_uid()
     series_uid = series_uid or generate_uid()
     frame_of_ref_uid = generate_uid()
     rng = np.random.default_rng(seed)
 
-    zz, yy, xx = np.indices((num_slices, rows, cols), dtype=np.float32)
-    cy, cx = rows / 2, cols / 2
-    # Ellipsoid "lungs"
-    left = ((yy - cy) / (rows * 0.28)) ** 2 + ((xx - (cx - cols * 0.18)) / (cols * 0.18)) ** 2 + (
-        (zz - num_slices / 2) / (num_slices * 0.4)
-    ) ** 2 <= 1.0
-    right = ((yy - cy) / (rows * 0.28)) ** 2 + ((xx - (cx + cols * 0.18)) / (cols * 0.18)) ** 2 + (
-        (zz - num_slices / 2) / (num_slices * 0.4)
-    ) ** 2 <= 1.0
-    lungs = left | right
-    volume = np.full((num_slices, rows, cols), -1000.0, dtype=np.float32)  # air
-    volume[~lungs & (yy > rows * 0.15)] = rng.normal(40, 30, size=volume.shape)[~lungs & (yy > rows * 0.15)]
-    volume[lungs] = rng.normal(-700, 80, size=volume.shape)[lungs]
-    # soft tissue body
-    body = ((yy - cy) / (rows * 0.42)) ** 2 + ((xx - cx) / (cols * 0.35)) ** 2 <= 1.0
-    volume[~body] = -1000
-    volume[body & ~lungs] = rng.normal(30, 40, size=volume.shape)[body & ~lungs]
+    if anatomy == "chest_dr":
+        num_slices = 1
+
+    volume, meta = _build_phantom_volume(
+        anatomy=anatomy,
+        num_slices=num_slices,
+        rows=rows,
+        cols=cols,
+        rng=rng,
+    )
+
+    sop_class = {
+        "CT": "1.2.840.10008.5.1.4.1.1.2",
+        "MR": "1.2.840.10008.5.1.4.1.1.4",
+        "DX": "1.2.840.10008.5.1.4.1.1.1.1",
+        "CR": "1.2.840.10008.5.1.4.1.1.1",
+        "DR": "1.2.840.10008.5.1.4.1.1.1.1",
+    }.get(modality.upper(), "1.2.840.10008.5.1.4.1.1.2")
 
     paths: list[Path] = []
-    for idx in range(num_slices):
+    for idx in range(volume.shape[0]):
         sop_uid = generate_uid()
         file_meta = Dataset()
-        file_meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2"
+        file_meta.MediaStorageSOPClassUID = sop_class
         file_meta.MediaStorageSOPInstanceUID = sop_uid
         file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
         file_meta.ImplementationClassUID = generate_uid()
 
-        path = output_dir / f"IMG{idx:04d}.dcm"
+        path = output_dir / f"{idx:04d}_{sop_uid[-8:]}.dcm"
         ds = FileDataset(str(path), {}, file_meta=file_meta, preamble=b"\0" * 128)
         ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
         ds.SOPInstanceUID = sop_uid
@@ -293,7 +307,7 @@ def write_synthetic_dicom_series(
         ds.AccessionNumber = ""
         ds.StudyID = "DEMO1"
         ds.StudyDate = "20260115"
-        ds.StudyDescription = "VoxFlow Demo Study"
+        ds.StudyDescription = study_description
         ds.SeriesDescription = series_description
         ds.SeriesNumber = 1
         ds.InstanceNumber = idx + 1
@@ -307,7 +321,7 @@ def write_synthetic_dicom_series(
         ds.PixelRepresentation = 1
         ds.RescaleIntercept = 0
         ds.RescaleSlope = 1
-        ds.SliceThickness = 1.25
+        ds.SliceThickness = 1.25 if modality.upper() != "DR" else 0.0
         ds.PixelSpacing = [1.0, 1.0]
         ds.ImagePositionPatient = [0.0, 0.0, float(idx * 1.25)]
         ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
@@ -315,12 +329,126 @@ def write_synthetic_dicom_series(
         ds.PositionReferenceIndicator = ""
         ds.InstitutionName = "VoxFlow Demo Hospital"
 
-        pixels = np.clip(volume[idx], -1024, 3071).astype(np.int16)
+        lo, hi = (-1024, 3071) if modality.upper() == "CT" else (0, 4095)
+        pixels = np.clip(volume[idx], lo, hi).astype(np.int16)
         ds.PixelData = pixels.tobytes()
         ds.save_as(str(path), enforce_file_format=True)
         paths.append(path)
 
-    return paths
+    meta_path = output_dir / "phantom_meta.json"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return paths, meta
+
+
+def _build_phantom_volume(
+    *,
+    anatomy: str,
+    num_slices: int,
+    rows: int,
+    cols: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, dict]:
+    zz, yy, xx = np.indices((num_slices, rows, cols), dtype=np.float32)
+    cy, cx = rows / 2.0, cols / 2.0
+    meta: dict = {"anatomy": anatomy, "nodules": []}
+
+    if anatomy == "chest":
+        body = ((yy - cy) / (rows * 0.45)) ** 2 + ((xx - cx) / (cols * 0.40)) ** 2 <= 1.0
+        volume = np.full((num_slices, rows, cols), -1000.0, dtype=np.float32)
+        soft_hu = np.clip(rng.normal(30, 25, size=volume.shape), -80, 120)
+        volume[body] = soft_hu[body]
+        # Lungs strictly inside body (avoid opening cavities to outside air)
+        left = ((yy - cy) / (rows * 0.26)) ** 2 + ((xx - (cx - cols * 0.16)) / (cols * 0.15)) ** 2 + (
+            (zz - num_slices / 2) / (num_slices * 0.38)
+        ) ** 2 <= 1.0
+        right = ((yy - cy) / (rows * 0.26)) ** 2 + ((xx - (cx + cols * 0.16)) / (cols * 0.15)) ** 2 + (
+            (zz - num_slices / 2) / (num_slices * 0.38)
+        ) ** 2 <= 1.0
+        # Keep lungs strictly inside soft tissue (1-voxel collar) so cavities seal for fill_holes
+        from scipy import ndimage as _ndimage
+
+        body_inner = _ndimage.binary_erosion(body, iterations=1)
+        lungs = (left | right) & body_inner
+        volume[lungs] = np.clip(rng.normal(-700, 60, size=volume.shape), -950, -450)[lungs]
+
+        # Spine (posterior high-HU disk)
+        spine = ((yy - (cy + rows * 0.22)) / (rows * 0.08)) ** 2 + ((xx - cx) / (cols * 0.07)) ** 2 <= 1.0
+        volume[body & spine] = rng.normal(400, 50, size=volume.shape)[body & spine]
+
+        # Trachea: mediastinal air tube with soft-tissue collar — must NOT touch lungs,
+        # or cavities connect to outside via the superior face and fill_holes fails.
+        lung_keepout = _ndimage.binary_dilation(lungs, iterations=2)
+        trachea = (
+            ((yy - cy) / (rows * 0.025)) ** 2 + ((xx - cx) / (cols * 0.025)) ** 2 <= 1.0
+        ) & (zz >= 2) & (zz < num_slices * 0.40) & body & ~lung_keepout
+        volume[trachea] = -1000.0
+
+        # Bed plate
+        bed = (yy > rows * 0.88) & (np.abs(xx - cx) < cols * 0.4)
+        volume[bed] = rng.normal(100, 20, size=volume.shape)[bed]
+
+        # Vessel-like tubes in lung (+50 HU)
+        for _ in range(6):
+            vz = float(rng.uniform(num_slices * 0.25, num_slices * 0.75))
+            vy = float(rng.uniform(cy - rows * 0.15, cy + rows * 0.15))
+            vx = float(rng.uniform(cx - cols * 0.22, cx + cols * 0.22))
+            tube = ((zz - vz) / 8.0) ** 2 + ((yy - vy) / 2.2) ** 2 + ((xx - vx) / 2.2) ** 2 <= 1.0
+            volume[tube & lungs] = rng.normal(50, 15, size=volume.shape)[tube & lungs]
+
+        # Planted nodules inside lungs (visible to det/seg)
+        planted: list[dict] = []
+        candidates = np.argwhere(lungs)
+        if len(candidates) > 0:
+            n_nod = int(rng.integers(2, 4))
+            picks = candidates[rng.choice(len(candidates), size=min(n_nod, len(candidates)), replace=False)]
+            for p in picks:
+                cz, cy_i, cx_i = (int(p[0]), int(p[1]), int(p[2]))
+                diameter = float(rng.uniform(8.0, 16.0))
+                rad = max(diameter / 2.0, 3.0)
+                blob = ((zz - cz) / (rad * 0.6)) ** 2 + ((yy - cy_i) / rad) ** 2 + ((xx - cx_i) / rad) ** 2 <= 1.0
+                volume[blob & lungs] = rng.normal(30, 20, size=volume.shape)[blob & lungs]
+                planted.append({"z": cz, "y": cy_i, "x": cx_i, "diameter_mm": round(diameter, 1)})
+        meta["nodules"] = planted
+        return volume, meta
+
+    if anatomy == "head":
+        volume = np.full((num_slices, rows, cols), -1000.0, dtype=np.float32)
+        skull = ((yy - cy) / (rows * 0.38)) ** 2 + ((xx - cx) / (cols * 0.32)) ** 2 + (
+            (zz - num_slices / 2) / (num_slices * 0.42)
+        ) ** 2
+        brain = skull <= 0.85
+        bone = (skull <= 1.0) & (skull > 0.85)
+        volume[brain] = rng.normal(35, 12, size=volume.shape)[brain]
+        volume[bone] = rng.normal(800, 60, size=volume.shape)[bone]
+        return volume, meta
+
+    if anatomy == "brain_mr":
+        # MR-like intensities (arbitrary units, non-negative)
+        volume = np.zeros((num_slices, rows, cols), dtype=np.float32)
+        brain = ((yy - cy) / (rows * 0.36)) ** 2 + ((xx - cx) / (cols * 0.3)) ** 2 + (
+            (zz - num_slices / 2) / (num_slices * 0.4)
+        ) ** 2 <= 1.0
+        volume[brain] = rng.normal(600, 80, size=volume.shape)[brain]
+        ventricles = ((yy - cy) / (rows * 0.08)) ** 2 + ((xx - cx) / (cols * 0.06)) ** 2 + (
+            (zz - num_slices / 2) / (num_slices * 0.15)
+        ) ** 2 <= 1.0
+        volume[ventricles] = rng.normal(200, 30, size=volume.shape)[ventricles]
+        return volume, meta
+
+    if anatomy == "chest_dr":
+        # Single projection-ish chest silhouette
+        volume = np.full((1, rows, cols), 200.0, dtype=np.float32)
+        body = ((yy[0] - cy) / (rows * 0.45)) ** 2 + ((xx[0] - cx) / (cols * 0.38)) ** 2 <= 1.0
+        volume[0][body] = rng.normal(900, 40, size=(rows, cols))[body]
+        lungs2d = (
+            ((yy[0] - cy) / (rows * 0.28)) ** 2 + ((xx[0] - (cx - cols * 0.16)) / (cols * 0.16)) ** 2 <= 1.0
+        ) | (((yy[0] - cy) / (rows * 0.28)) ** 2 + ((xx[0] - (cx + cols * 0.16)) / (cols * 0.16)) ** 2 <= 1.0)
+        volume[0][lungs2d] = rng.normal(400, 30, size=(rows, cols))[lungs2d]
+        return volume, meta
+
+    # Fallback: noise volume
+    volume = rng.normal(-200, 180, size=(num_slices, rows, cols)).astype(np.float32)
+    return volume, meta
 
 
 def cleanup_dir(path: Path) -> None:

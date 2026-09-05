@@ -15,6 +15,13 @@ def stable_seed(*parts: str) -> int:
     return int(digest[:8], 16)
 
 
+def require_volume(ctx: InferenceContext) -> np.ndarray:
+    """Plugins must use Orchestrator-preloaded volume (N-B8)."""
+    if ctx.volume is None:
+        raise RuntimeError("InferenceContext.volume is missing — Orchestrator must preload")
+    return ctx.volume
+
+
 class BaseFakeModel(ABC):
     """Shared helpers for deterministic fake models with staged progress."""
 
@@ -79,19 +86,3 @@ class BaseFakeModel(ABC):
 
     @abstractmethod
     def postprocess(self, raw: Any, ctx: InferenceContext) -> InferenceResult: ...
-
-
-def load_series_volume(series_path: str | None, rows: int, cols: int, num: int) -> np.ndarray:
-    """Load DICOM series as float32 volume; fall back to synthetic volume."""
-    if series_path:
-        try:
-            from app.imaging.dicom_io import read_series_volume
-
-            volume = read_series_volume(series_path)
-            if volume is not None:
-                return volume
-        except Exception:  # noqa: BLE001
-            pass
-    rng = np.random.default_rng(42)
-    volume = rng.normal(loc=-200, scale=180, size=(num, rows, cols)).astype(np.float32)
-    return volume

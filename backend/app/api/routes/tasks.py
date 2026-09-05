@@ -18,6 +18,7 @@ from app.api.schemas import (
     TaskSummary,
 )
 from app.infra.queue import get_task_queue
+from app.models_hub.constraints import UnsupportedInputError
 from app.services.report_service import ReportService
 from app.services.task_service import TaskService
 
@@ -34,6 +35,10 @@ async def create_task(
         svc.db.commit()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
+    except UnsupportedInputError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": str(exc)}
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "BAD_REQUEST", "message": str(exc)}) from exc
 

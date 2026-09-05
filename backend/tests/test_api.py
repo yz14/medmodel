@@ -62,6 +62,21 @@ def _wait_task(client: TestClient, task_id: str, timeout: float = 15.0) -> dict:
     return detail
 
 
+def _chest_series_uid(c: TestClient) -> str:
+    studies = c.get("/api/v1/studies").json()["items"]
+    for study in studies:
+        if study.get("patient_id") == "DEMO-CT-CHEST":
+            return study["series"][0]["series_uid"]
+        for s in study.get("series") or []:
+            if (
+                (s.get("modality") or "").upper() == "CT"
+                and (s.get("body_part") or "").upper() == "CHEST"
+                and int(s.get("num_instances") or 0) >= 8
+            ):
+                return s["series_uid"]
+    return studies[0]["series"][0]["series_uid"]
+
+
 def test_health(client):
     c, _ = client
     resp = c.get("/api/v1/health")
@@ -85,7 +100,20 @@ def test_demo_instances_and_volume_aligned(client):
     c, storage = client
     studies = c.get("/api/v1/studies").json()
     assert studies["total"] >= 1
-    series = studies["items"][0]["series"][0]
+    chest = next(
+        (
+            s
+            for s in studies["items"]
+            if s.get("patient_id") == "DEMO-CT-CHEST"
+            or (
+                (s.get("body_part") or "").upper() == "CHEST"
+                and s.get("modality") == "CT"
+                and int((s.get("series") or [{}])[0].get("num_instances") or 0) >= 8
+            )
+        ),
+        studies["items"][0],
+    )
+    series = chest["series"][0]
     assert series["num_instances"] == 40
 
     series_uid = series["series_uid"]
@@ -129,8 +157,7 @@ def test_demo_instances_and_volume_aligned(client):
 
 def test_inference_and_idempotent_cache(client):
     c, _ = client
-    studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     create = c.post(
         "/api/v1/tasks",
@@ -155,8 +182,7 @@ def test_inference_and_idempotent_cache(client):
 def test_sse_progress_and_succeeded(client):
     """A-2: SSE must emit progress and terminal succeeded."""
     c, _ = client
-    studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     create = c.post(
         "/api/v1/tasks",
@@ -202,7 +228,7 @@ def test_artifact_path_traversal_rejected(client):
     """A-4: traversal names rejected."""
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     create = c.post(
         "/api/v1/tasks",
         json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 0.9}},
@@ -247,7 +273,7 @@ def test_zip_slip_rejected(client, tmp_path):
 def test_unknown_model_and_disabled(client):
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     resp = c.post(
         "/api/v1/tasks",
@@ -268,7 +294,7 @@ def test_unknown_model_and_disabled(client):
 def test_cancel_and_retry(client):
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     # use params that avoid cache; wait longer for cancel race
     create = c.post(
         "/api/v1/tasks",
@@ -298,12 +324,12 @@ def test_cancel_and_retry(client):
 def test_mask_frame_endpoint(client):
     """R2: mask PNG stack is served per slice."""
     c, _ = client
-    studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     create = c.post(
         "/api/v1/tasks",
         json={"series_uid": series_uid, "model_id": "lung_seg", "params": {"smooth": True}},
     )
+    assert create.status_code == 202, create.text
     task_id = create.json()["task_id"]
     detail = _wait_task(c, task_id)
     assert detail["status"] == "succeeded"
@@ -312,7 +338,9 @@ def test_mask_frame_endpoint(client):
     result = c.get(f"/api/v1/tasks/{task_id}/result").json()
     assert result["masks"]
     # pick a slice that has lung
-    idx = result["masks"][0]["slice_indices"][0]
+    indices = result["masks"][0].get("slice_indices") or []
+    assert indices, result["masks"][0]
+    idx = indices[0]
     resp = c.get(f"/api/v1/tasks/{task_id}/mask-frames/{idx}?prefix=label")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("image/png")
@@ -323,7 +351,7 @@ def test_invalid_params_rejected(client):
     """B-3: params must satisfy model params_schema."""
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     resp = c.post(
         "/api/v1/tasks",
         json={"series_uid": series_uid, "model_id": "lung_seg", "params": {"hu_low": "not-a-number"}},
@@ -337,7 +365,7 @@ def test_inflight_dedup(client):
     """B-4: concurrent same-params creates reuse in-flight task id."""
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     body = {"series_uid": series_uid, "model_id": "nodule_det", "params": {}}
     a = c.post("/api/v1/tasks", json=body)
     b = c.post("/api/v1/tasks", json=body)
@@ -370,7 +398,7 @@ def test_structured_report_and_dicom_export(client):
 
     c, storage = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     create = c.post(
         "/api/v1/tasks",
@@ -457,8 +485,9 @@ def test_heal_stale_num_instances(client):
     from app.services.study_service import StudyService
 
     assert SessionLocal is not None
+    chest_uid = _chest_series_uid(c)
     with SessionLocal() as db:
-        series = db.scalar(select(SeriesRow).limit(1))
+        series = db.scalar(select(SeriesRow).where(SeriesRow.series_uid == chest_uid))
         assert series is not None
         series.num_instances = 0
         study = db.scalar(select(StudyRow).where(StudyRow.study_uid == series.study_uid))
@@ -473,14 +502,15 @@ def test_heal_stale_num_instances(client):
         assert series.num_instances == 40
 
     studies = c.get("/api/v1/studies").json()
-    assert studies["items"][0]["series"][0]["num_instances"] == 40
+    chest = next(s for s in studies["items"] if any(x["series_uid"] == chest_uid for x in s.get("series") or []))
+    assert next(x for x in chest["series"] if x["series_uid"] == chest_uid)["num_instances"] == 40
 
 
 def test_cache_hit_artifacts_downloadable(client):
     """N-B2: cache_hit copies ArtifactRow so artifact download works."""
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     create = c.post(
         "/api/v1/tasks",
@@ -519,7 +549,7 @@ def test_cancel_not_overwritten_by_succeeded(client, monkeypatch):
 
     c, _ = client
     studies = c.get("/api/v1/studies").json()
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
 
     create = c.post(
         "/api/v1/tasks",
@@ -567,7 +597,7 @@ def test_timestamps_serialized_with_utc_z(client):
     assert created.endswith("Z"), created
     assert "+" not in created.split("T")[-1].replace("Z", "")
 
-    series_uid = studies["items"][0]["series"][0]["series_uid"]
+    series_uid = _chest_series_uid(c)
     create = c.post(
         "/api/v1/tasks",
         json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 1.42}},
@@ -587,4 +617,74 @@ def test_cls_det_metrics_no_zero_dice(client):
     assert models["nodule_cls"]["metrics"].get("auc", 0) > 0
     assert "dice" not in models["nodule_det"]["metrics"]
     assert models["nodule_det"]["metrics"].get("map", 0) > 0
+
+
+def test_multi_modal_demo_catalog(client):
+    """N-B9: demo catalog includes CT chest/head, MR brain, DR chest."""
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()
+    pids = {s["patient_id"] for s in studies["items"]}
+    assert {"DEMO-CT-CHEST", "DEMO-CT-HEAD", "DEMO-MR-BRAIN", "DEMO-DR-CHEST"} <= pids
+    assert studies["total"] >= 4
+
+
+def test_input_constraints_reject_mr(client):
+    """N-B6: lung models rejected on MR with UNSUPPORTED_INPUT."""
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()["items"]
+    mr = next(s for s in studies if s.get("patient_id") == "DEMO-MR-BRAIN")
+    series_uid = mr["series"][0]["series_uid"]
+    resp = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {}},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == "UNSUPPORTED_INPUT"
+
+
+def test_input_constraints_reject_head_body_part(client):
+    """N-B6: chest-only models rejected on HEAD CT."""
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()["items"]
+    head = next(s for s in studies if s.get("patient_id") == "DEMO-CT-HEAD")
+    series_uid = head["series"][0]["series_uid"]
+    resp = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_det", "params": {}},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "UNSUPPORTED_INPUT"
+
+
+def test_planted_nodules_detection_in_range(client):
+    """N-B9: det boxes land on valid slices; phantom_meta sidecar present."""
+    c, storage = client
+    series_uid = _chest_series_uid(c)
+    from app.infra.db import SessionLocal
+    from app.infra.orm import SeriesRow
+    from sqlalchemy import select
+
+    assert SessionLocal is not None
+    with SessionLocal() as db:
+        row = db.scalar(select(SeriesRow).where(SeriesRow.series_uid == series_uid))
+        assert row is not None
+        meta = Path(row.storage_path) / "phantom_meta.json"
+        assert meta.is_file()
+        import json
+
+        planted = json.loads(meta.read_text(encoding="utf-8")).get("nodules") or []
+        assert len(planted) >= 1
+
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_det", "params": {"score_threshold": 0.2}},
+    )
+    assert create.status_code == 202
+    detail = _wait_task(c, create.json()["task_id"])
+    assert detail["status"] == "succeeded"
+    result = c.get(f"/api/v1/tasks/{detail['task_id']}/result").json()
+    assert result["boxes"]
+    for box in result["boxes"]:
+        assert 0 <= int(box["slice_index"]) < 40
 

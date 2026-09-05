@@ -19,6 +19,7 @@ from app.infra.orm import ArtifactRow, SeriesRow, TaskLogRow, TaskRow
 from app.infra.queue import get_task_queue
 from app.infra.storage import StorageService
 from app.infra.timeutil import utc_iso
+from app.models_hub.constraints import UnsupportedInputError, check_input_constraints
 from app.models_hub.registry import registry
 from app.services.model_service import ModelService
 from app.services.serializers import inference_result_to_dict
@@ -135,6 +136,12 @@ class TaskService:
         if series is None:
             raise KeyError(f"未知序列: {series_uid}")
         plugin = registry.get(model_id)
+        check_input_constraints(
+            plugin.spec,
+            modality=series.modality,
+            body_part=series.body_part,
+            num_instances=int(series.num_instances or 0),
+        )
         state_model = model_svc.get_model(model_id)
         defaults = merge_and_validate_params(
             plugin.spec.params_schema,
@@ -430,6 +437,37 @@ class InferenceOrchestrator:
                 latency_scale=get_settings().task_fake_latency_scale,
                 cancel_check=lambda: queue.is_canceled(task_id),
             )
+            # N-B8: Orchestrator preloads volume + phantom sidecar; plugins stay compute-only
+            from app.imaging.dicom_io import read_series_volume
+
+            volume = None
+            if series.storage_path:
+                try:
+                    volume = read_series_volume(series.storage_path)
+                except Exception:  # noqa: BLE001
+                    logger.exception("volume_preload_failed", series_uid=series.series_uid)
+            if volume is None:
+                import numpy as np
+
+                volume = np.random.default_rng(42).normal(
+                    loc=-200,
+                    scale=180,
+                    size=(
+                        max(series.num_instances, 8),
+                        max(series.rows, 32),
+                        max(series.cols, 32),
+                    ),
+                ).astype(np.float32)
+            ctx.volume = volume
+            extras: dict[str, Any] = {}
+            if series.storage_path:
+                meta_path = Path(series.storage_path) / "phantom_meta.json"
+                if meta_path.is_file():
+                    try:
+                        extras = json.loads(meta_path.read_text(encoding="utf-8"))
+                    except Exception:  # noqa: BLE001
+                        logger.warning("phantom_meta_read_failed", path=str(meta_path))
+            ctx.extras = extras
             result = run_plugin(plugin, ctx)
             materialize_storage_uris(result, storage)
             result_dict = inference_result_to_dict(result)

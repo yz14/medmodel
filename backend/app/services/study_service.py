@@ -193,6 +193,11 @@ class StudyService:
             )
             total_instances += existing.num_instances
 
+            # Preserve phantom sidecar for planted-nodule demos (N-B9)
+            meta_src = Path(series_items[0].source_path).parent / "phantom_meta.json"
+            if meta_src.is_file():
+                shutil.copy2(meta_src, series_dir / "phantom_meta.json")
+
             # Remove leftover synthetic IMG*.dcm if ingested copies exist (legacy cleanup).
             ingested = list(series_dir.glob("[0-9][0-9][0-9][0-9]_*.dcm"))
             if ingested:
@@ -243,35 +248,105 @@ class StudyService:
         return fixed
 
     def ensure_demo_data(self) -> StudyRow:
+        """Ensure a multi-modal demo catalog exists; return the CT chest study (N-B9)."""
         self.heal_instance_counts()
-        existing = self.db.scalar(select(StudyRow).limit(1))
-        if existing is not None:
-            return existing
+
+        catalog = [
+            {
+                "patient_id": "DEMO-CT-HEAD",
+                "patient_name": "Li^Fang",
+                "modality": "CT",
+                "body_part": "HEAD",
+                "anatomy": "head",
+                "num_slices": 32,
+                "series_description": "Demo Head CT",
+                "study_description": "VoxFlow Demo · Head CT",
+                "seed": 21,
+            },
+            {
+                "patient_id": "DEMO-MR-BRAIN",
+                "patient_name": "Wang^Jun",
+                "modality": "MR",
+                "body_part": "BRAIN",
+                "anatomy": "brain_mr",
+                "num_slices": 28,
+                "series_description": "Demo Brain MR",
+                "study_description": "VoxFlow Demo · Brain MR",
+                "seed": 31,
+            },
+            {
+                "patient_id": "DEMO-DR-CHEST",
+                "patient_name": "Zhao^Min",
+                "modality": "DX",
+                "body_part": "CHEST",
+                "anatomy": "chest_dr",
+                "num_slices": 1,
+                "series_description": "Demo Chest DR",
+                "study_description": "VoxFlow Demo · Chest DR",
+                "seed": 41,
+            },
+            # Seed chest last so it sorts first by created_at desc (default study list).
+            {
+                "patient_id": "DEMO-CT-CHEST",
+                "patient_name": "Zhang^Wei",
+                "modality": "CT",
+                "body_part": "CHEST",
+                "anatomy": "chest",
+                "num_slices": 40,
+                "series_description": "Demo Chest CT",
+                "study_description": "VoxFlow Demo · Chest CT",
+                "seed": 11,
+            },
+        ]
 
         from pydicom.uid import generate_uid
 
-        study_uid = str(generate_uid())
-        series_uid = str(generate_uid())
-        # Write synthetic series to a temp dir, then ingest into storage (avoids duplicate files).
-        tmp = Path(tempfile.mkdtemp(prefix="voxflow_demo_"))
-        try:
-            write_synthetic_dicom_series(
-                tmp,
-                study_uid=study_uid,
-                series_uid=series_uid,
-                num_slices=40,
-                rows=256,
-                cols=256,
-                patient_name="Zhang^Wei",
-                patient_id="P10086",
-                series_description="Demo Chest CT",
-                seed=11,
+        primary: StudyRow | None = None
+        for entry in catalog:
+            existing = self.db.scalar(
+                select(StudyRow).where(StudyRow.patient_id == entry["patient_id"]).limit(1)
             )
-            studies = self.ingest_path(tmp)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-        logger.info("demo_data_seeded", study_uid=studies[0].study_uid)
-        return studies[0]
+            if existing is not None:
+                if entry["patient_id"] == "DEMO-CT-CHEST":
+                    primary = existing
+                continue
+
+            study_uid = str(generate_uid())
+            series_uid = str(generate_uid())
+            tmp = Path(tempfile.mkdtemp(prefix="voxflow_demo_"))
+            try:
+                write_synthetic_dicom_series(
+                    tmp,
+                    study_uid=study_uid,
+                    series_uid=series_uid,
+                    num_slices=int(entry["num_slices"]),
+                    rows=256,
+                    cols=256,
+                    modality=str(entry["modality"]),
+                    body_part=str(entry["body_part"]),
+                    patient_name=str(entry["patient_name"]),
+                    patient_id=str(entry["patient_id"]),
+                    series_description=str(entry["series_description"]),
+                    study_description=str(entry["study_description"]),
+                    seed=int(entry["seed"]),
+                    anatomy=str(entry["anatomy"]),
+                )
+                studies = self.ingest_path(tmp)
+                if entry["patient_id"] == "DEMO-CT-CHEST" and studies:
+                    primary = studies[0]
+                logger.info(
+                    "demo_data_seeded",
+                    patient_id=entry["patient_id"],
+                    study_uid=studies[0].study_uid if studies else None,
+                )
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+
+        if primary is None:
+            primary = self.db.scalar(select(StudyRow).limit(1))
+        if primary is None:
+            raise RuntimeError("demo seed failed")
+        return primary
 
     def study_to_dict(self, study: StudyRow, include_series: bool = True) -> dict[str, Any]:
         data: dict[str, Any] = {

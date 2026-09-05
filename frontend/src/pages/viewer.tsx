@@ -209,7 +209,16 @@ export function ViewerPage() {
           )}
         </div>
         {rightOpen &&
-          (seriesUid ? <AiPanel seriesUid={seriesUid} /> : <div className="border-l border-border bg-surface-1" />)}
+          (seriesUid ? (
+            <AiPanel
+              seriesUid={seriesUid}
+              modality={activeSeries?.modality ?? study.modality}
+              bodyPart={activeSeries?.body_part ?? study.body_part}
+              numInstances={sliceCount || activeSeries?.num_instances}
+            />
+          ) : (
+            <div className="border-l border-border bg-surface-1" />
+          ))}
       </div>
     </div>
   )

@@ -15,8 +15,19 @@ import { ReportPanel } from '@/features/viewer/ReportPanel'
 import { useTaskSSE } from '@/features/tasks/useTaskSSE'
 import { useViewerStore } from '@/stores/viewer-store'
 import { asJsonSchema, type TaskStatus } from '@/types/api'
+import { modelCompatibility } from '@/features/viewer/modelCompatibility'
 
-export function AiPanel({ seriesUid }: { seriesUid: string }) {
+export function AiPanel({
+  seriesUid,
+  modality,
+  bodyPart,
+  numInstances,
+}: {
+  seriesUid: string
+  modality?: string | null
+  bodyPart?: string | null
+  numInstances?: number | null
+}) {
   const queryClient = useQueryClient()
   const selectedModelId = useViewerStore((s) => s.selectedModelId)
   const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId)
@@ -43,11 +54,26 @@ export function AiPanel({ seriesUid }: { seriesUid: string }) {
   })
 
   const models = modelsQuery.data?.items ?? []
-  const selected = models.find((m) => m.id === selectedModelId) ?? models[0]
+  const seriesMeta = { modality, bodyPart, numInstances }
+  const compatibleModels = models.map((m) => ({
+    model: m,
+    compat: modelCompatibility(m, seriesMeta),
+  }))
+  const selected =
+    models.find((m) => m.id === selectedModelId) ??
+    compatibleModels.find((c) => c.compat.ok)?.model ??
+    models[0]
+  const selectedCompat = selected
+    ? modelCompatibility(selected, seriesMeta)
+    : { ok: false, reason: '未选择模型' }
 
   useEffect(() => {
-    if (!selectedModelId && models[0]) setSelectedModelId(models[0].id)
-  }, [models, selectedModelId, setSelectedModelId])
+    if (!models.length) return
+    const current = selectedModelId ? models.find((m) => m.id === selectedModelId) : undefined
+    if (current && modelCompatibility(current, seriesMeta).ok) return
+    const firstOk = compatibleModels.find((c) => c.compat.ok)?.model
+    if (firstOk) setSelectedModelId(firstOk.id)
+  }, [models, selectedModelId, modality, bodyPart, numInstances, setSelectedModelId])
 
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [paramsValid, setParamsValid] = useState(true)
@@ -142,12 +168,18 @@ export function AiPanel({ seriesUid }: { seriesUid: string }) {
             disabled={!models.length}
             data-testid="model-select"
           >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
+            {compatibleModels.map(({ model: m, compat }) => (
+              <option key={m.id} value={m.id} disabled={!compat.ok}>
                 {m.name} · {m.task_type}
+                {!compat.ok && compat.reason ? `（${compat.reason}）` : ''}
               </option>
             ))}
           </Select>
+          {!selectedCompat.ok && selectedCompat.reason && (
+            <p className="text-[11px] text-warning" data-testid="model-incompatible">
+              当前序列不适用：{selectedCompat.reason}
+            </p>
+          )}
           {selected && <p className="text-[11px] leading-relaxed text-muted">{selected.description}</p>}
         </div>
 
@@ -165,7 +197,7 @@ export function AiPanel({ seriesUid }: { seriesUid: string }) {
           <Button
             className="flex-1"
             data-testid="run-inference"
-            disabled={!selected || !paramsValid || runMutation.isPending || busy}
+            disabled={!selected || !selectedCompat.ok || !paramsValid || runMutation.isPending || busy}
             onClick={() => runMutation.mutate()}
           >
             {runMutation.isPending || busy ? (
