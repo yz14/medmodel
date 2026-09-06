@@ -108,12 +108,42 @@ export const api = {
 
   getStudy: (studyUid: string) => request<StudySummary>(`/api/v1/studies/${encodeURIComponent(studyUid)}`),
 
-  uploadStudies: (files: File[]) => {
+  uploadStudies: (
+    files: File[],
+    opts?: { onProgress?: (ratio: number) => void; signal?: AbortSignal },
+  ) => {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))
-    return request<StudyUploadResponse>('/api/v1/studies/upload', {
-      method: 'POST',
-      body: form,
+    if (!opts?.onProgress) {
+      return request<StudyUploadResponse>('/api/v1/studies/upload', {
+        method: 'POST',
+        body: form,
+        signal: opts?.signal,
+      })
+    }
+    return new Promise<StudyUploadResponse>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/v1/studies/upload')
+      xhr.responseType = 'json'
+      xhr.upload.onprogress = (ev) => {
+        if (!ev.lengthComputable) return
+        opts.onProgress?.(ev.loaded / Math.max(1, ev.total))
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(xhr.response as StudyUploadResponse)
+          return
+        }
+        const detail =
+          (xhr.response && (xhr.response.detail || xhr.response.message)) ||
+          xhr.statusText ||
+          '上传失败'
+        reject(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)))
+      }
+      xhr.onerror = () => reject(new Error('网络错误'))
+      xhr.onabort = () => reject(new Error('已取消'))
+      opts.signal?.addEventListener('abort', () => xhr.abort())
+      xhr.send(form)
     })
   },
 
