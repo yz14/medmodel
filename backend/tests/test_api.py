@@ -688,3 +688,85 @@ def test_planted_nodules_detection_in_range(client):
     for box in result["boxes"]:
         assert 0 <= int(box["slice_index"]) < 40
 
+
+def test_task_search_and_model_filter(client):
+    """R11: tasks list supports q search + model_id filter."""
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 1.05}},
+    )
+    assert create.status_code == 202
+    task_id = create.json()["task_id"]
+    detail = _wait_task(c, task_id)
+    assert detail["status"] == "succeeded"
+
+    by_model = c.get("/api/v1/tasks", params={"model_id": "nodule_cls"})
+    assert by_model.status_code == 200
+    assert any(t["task_id"] == task_id for t in by_model.json()["items"])
+
+    by_q = c.get("/api/v1/tasks", params={"q": "nodule_cls"})
+    assert by_q.status_code == 200
+    assert any(t["task_id"] == task_id for t in by_q.json()["items"])
+
+    by_tid = c.get("/api/v1/tasks", params={"q": task_id[:8]})
+    assert by_tid.status_code == 200
+    assert any(t["task_id"] == task_id for t in by_tid.json()["items"])
+
+
+def test_report_reviews_and_sr_probability_semantics(client):
+    """R11/N-B7: reviews in Chinese report; SR uses DCM.Probability + review QualEval."""
+    import pydicom
+    from highdicom.sr.utils import find_content_items
+    from pydicom.sr.codedict import codes
+
+    c, storage = client
+    series_uid = _chest_series_uid(c)
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_det", "params": {}},
+    )
+    assert create.status_code == 202
+    task_id = create.json()["task_id"]
+    assert _wait_task(c, task_id)["status"] == "succeeded"
+    det = c.get(f"/api/v1/tasks/{task_id}/result").json()
+    assert det["boxes"]
+    box_ids = [f"box-{b['id']}" for b in det["boxes"]]
+    reviews = [
+        {"finding_id": box_ids[0], "status": "accepted"},
+        *[{"finding_id": fid, "status": "rejected"} for fid in box_ids[1:]],
+    ]
+
+    report = c.post(
+        f"/api/v1/tasks/{task_id}/reports",
+        json={
+            "finding_ids": box_ids,
+            "reviews": reviews,
+            "export_seg": False,
+            "export_sr": True,
+            "export_gsps": True,
+        },
+    )
+    assert report.status_code == 200, report.text
+    body = report.json()
+    assert "已接受" in body["text"]
+    assert "审阅统计" in body["text"]
+    names = {a["name"] for a in body["artifacts"]}
+    assert any(n.startswith("sr_") for n in names)
+
+    sr_name = next(n for n in names if n.startswith("sr_"))
+    sr_resp = c.get(f"/api/v1/tasks/{task_id}/artifacts/{sr_name}")
+    assert sr_resp.status_code == 200
+    out = Path(storage) / sr_name
+    out.write_bytes(sr_resp.content)
+    ds = pydicom.dcmread(str(out))
+    assert "1.2.840.10008.5.1.4.1.1.88.33" in str(ds.SOPClassUID)
+
+    probs = find_content_items(ds, name=codes.DCM.Probability, recursive=True)
+    assert probs, "SR must contain DCM.Probability numeric items"
+
+    blob = str(ds)
+    assert "VF.REVIEW" in blob or "Review Status" in blob
+    assert "VF.ACCEPTED" in blob or "Accepted" in blob
+

@@ -6,38 +6,60 @@ import type { JsonSchema, JsonSchemaProperty } from '@/types/api'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
+function coerceEnumValue(raw: string, samples: unknown[]): unknown {
+  const sample = samples[0]
+  if (typeof sample === 'number') {
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : raw
+  }
+  if (typeof sample === 'boolean') {
+    return raw === 'true'
+  }
+  return raw
+}
+
+function propToZod(prop: JsonSchemaProperty, required: boolean): z.ZodTypeAny {
+  let base: z.ZodTypeAny
+
+  if (prop.type === 'boolean') {
+    base = z.boolean()
+  } else if (prop.enum?.length) {
+    const values = prop.enum
+    if (values.every((v) => typeof v === 'number')) {
+      base = z.number().refine((v) => values.includes(v), { message: '请选择有效选项' })
+    } else if (values.every((v) => typeof v === 'boolean')) {
+      base = z.boolean().refine((v) => values.includes(v), { message: '请选择有效选项' })
+    } else {
+      const asStrings = values.map(String) as [string, ...string[]]
+      base = z.enum(asStrings)
+    }
+  } else if (prop.type === 'integer') {
+    let n = z.number({ error: '请输入数字' }).int('请输入整数')
+    if (typeof prop.minimum === 'number') n = n.min(prop.minimum, `最小 ${prop.minimum}`)
+    if (typeof prop.maximum === 'number') n = n.max(prop.maximum, `最大 ${prop.maximum}`)
+    base = n
+  } else if (prop.type === 'number') {
+    let n = z.number({ error: '请输入数字' })
+    if (typeof prop.minimum === 'number') n = n.min(prop.minimum, `最小 ${prop.minimum}`)
+    if (typeof prop.maximum === 'number') n = n.max(prop.maximum, `最大 ${prop.maximum}`)
+    base = n
+  } else {
+    base = z.string()
+  }
+
+  return required ? base : base.optional()
+}
+
 function buildZodSchema(schema?: JsonSchema) {
   const properties = schema?.properties ?? {}
+  const required = new Set(schema?.required ?? [])
   const shape: Record<string, z.ZodTypeAny> = {}
 
   for (const [key, prop] of Object.entries(properties)) {
-    shape[key] = propToZod(prop)
+    shape[key] = propToZod(prop, required.has(key))
   }
 
   return z.object(shape)
-}
-
-function propToZod(prop: JsonSchemaProperty): z.ZodTypeAny {
-  if (prop.type === 'boolean') {
-    return z.boolean()
-  }
-  if (prop.enum?.length) {
-    const values = prop.enum.map(String)
-    return z.enum(values as [string, ...string[]])
-  }
-  if (prop.type === 'integer') {
-    let n = z.number().int('请输入整数')
-    if (typeof prop.minimum === 'number') n = n.min(prop.minimum, `最小 ${prop.minimum}`)
-    if (typeof prop.maximum === 'number') n = n.max(prop.maximum, `最大 ${prop.maximum}`)
-    return n
-  }
-  if (prop.type === 'number') {
-    let n = z.number()
-    if (typeof prop.minimum === 'number') n = n.min(prop.minimum, `最小 ${prop.minimum}`)
-    if (typeof prop.maximum === 'number') n = n.max(prop.maximum, `最大 ${prop.maximum}`)
-    return n
-  }
-  return z.string()
 }
 
 function defaultsFromSchema(
@@ -48,11 +70,20 @@ function defaultsFromSchema(
   const out: Record<string, unknown> = { ...(seed ?? {}) }
   for (const [key, prop] of Object.entries(properties)) {
     if (out[key] !== undefined) continue
-    if (prop.default !== undefined) out[key] = prop.default
-    else if (prop.type === 'boolean') out[key] = false
-    else if (prop.type === 'integer' || prop.type === 'number') out[key] = prop.minimum ?? 0
-    else if (prop.enum?.length) out[key] = String(prop.enum[0])
-    else out[key] = ''
+    if (prop.default !== undefined) {
+      out[key] = prop.default
+      continue
+    }
+    if (prop.type === 'boolean') out[key] = false
+    else if (prop.enum?.length) out[key] = prop.enum[0]
+    else if (prop.type === 'integer' || prop.type === 'number') {
+      // Leave unset for required so validation surfaces; optional gets minimum/0
+      if (!(schema?.required ?? []).includes(key)) {
+        out[key] = prop.minimum ?? 0
+      }
+    } else if (!(schema?.required ?? []).includes(key)) {
+      out[key] = ''
+    }
   }
   return out
 }
@@ -69,6 +100,7 @@ export function ModelParamsForm({
   onValidityChange?: (valid: boolean) => void
 }) {
   const properties = schema?.properties ?? {}
+  const required = new Set(schema?.required ?? [])
   const entries = Object.entries(properties)
 
   const zodSchema = useMemo(() => buildZodSchema(schema), [schema])
@@ -112,12 +144,16 @@ export function ModelParamsForm({
       {entries.map(([key, prop]) => {
         const title = prop.title || key
         const error = errors[key]?.message as string | undefined
+        const isRequired = required.has(key)
 
         if (prop.type === 'boolean') {
           return (
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-fg">{title}</span>
+                <span className="text-xs text-fg">
+                  {title}
+                  {isRequired ? <span className="text-danger"> *</span> : null}
+                </span>
                 <Controller
                   name={key}
                   control={control}
@@ -138,7 +174,10 @@ export function ModelParamsForm({
         if (prop.enum?.length) {
           return (
             <label key={key} className="block space-y-1">
-              <span className="text-xs text-muted">{title}</span>
+              <span className="text-xs text-muted">
+                {title}
+                {isRequired ? <span className="text-danger"> *</span> : null}
+              </span>
               <Controller
                 name={key}
                 control={control}
@@ -146,8 +185,9 @@ export function ModelParamsForm({
                   <select
                     className="flex h-9 w-full rounded-lg border border-border bg-surface-0 px-3 text-sm"
                     value={String(field.value ?? '')}
-                    onChange={(e) => field.onChange(e.target.value)}
+                    onChange={(e) => field.onChange(coerceEnumValue(e.target.value, prop.enum!))}
                     aria-invalid={!!error}
+                    aria-label={title}
                   >
                     {prop.enum!.map((item) => (
                       <option key={String(item)} value={String(item)}>
@@ -162,29 +202,38 @@ export function ModelParamsForm({
           )
         }
 
+        const isNumber = prop.type === 'integer' || prop.type === 'number'
         return (
           <label key={key} className="block space-y-1">
-            <span className="text-xs text-muted">{title}</span>
+            <span className="text-xs text-muted">
+              {title}
+              {isRequired ? <span className="text-danger"> *</span> : null}
+            </span>
             <Controller
               name={key}
               control={control}
               render={({ field }) => (
                 <Input
-                  type="number"
+                  type={isNumber ? 'number' : 'text'}
                   value={field.value === undefined || field.value === null ? '' : String(field.value)}
                   min={prop.minimum}
                   max={prop.maximum}
-                  step={prop.type === 'integer' ? 1 : 'any'}
+                  step={prop.type === 'integer' ? 1 : isNumber ? 'any' : undefined}
                   aria-invalid={!!error}
                   aria-label={title}
                   onChange={(e) => {
                     const raw = e.target.value
+                    if (!isNumber) {
+                      field.onChange(raw)
+                      return
+                    }
                     if (raw === '') {
-                      field.onChange(undefined)
+                      // Keep empty as NaN so z.number() fails clearly (not undefined).
+                      field.onChange(Number.NaN)
                       return
                     }
                     const n = prop.type === 'integer' ? parseInt(raw, 10) : Number(raw)
-                    field.onChange(Number.isFinite(n) ? n : raw)
+                    field.onChange(Number.isFinite(n) ? n : Number.NaN)
                   }}
                 />
               )}

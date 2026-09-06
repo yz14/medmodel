@@ -21,20 +21,18 @@ export function TaskDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  const { connected: sseConnected } = useTaskSSE(taskId, !!taskId)
+
   const task = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => api.getTask(taskId),
     enabled: !!taskId,
     refetchInterval: (q) => {
       const status = q.state.data?.status as TaskStatus | undefined
-      return status === 'queued' || status === 'running' ? 5000 : false
+      if (!(status === 'queued' || status === 'running')) return false
+      return sseConnected ? false : 3000
     },
   })
-
-  useTaskSSE(
-    taskId,
-    !!taskId && (!task.data?.status || ['queued', 'running'].includes(task.data.status)),
-  )
 
   const result = useQuery({
     queryKey: ['task-result', taskId],

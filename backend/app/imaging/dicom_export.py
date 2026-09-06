@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -33,12 +34,32 @@ from highdicom.sr import (
     MeasurementsAndQualitativeEvaluations,
     ObservationContext,
     ObserverContext,
+    QualitativeEvaluation,
     TrackingIdentifier,
 )
+from highdicom.sr.coding import CodedConcept
 from PIL import Image
 from pydicom.sr.codedict import codes
 from pydicom.uid import generate_uid
 
+logger = logging.getLogger(__name__)
+
+_REVIEW_NAME = CodedConcept(
+    value="VF.REVIEW",
+    meaning="Review Status",
+    scheme_designator="99VOXFLOW",
+)
+_REVIEW_VALUES = {
+    "accepted": CodedConcept(value="VF.ACCEPTED", meaning="Accepted", scheme_designator="99VOXFLOW"),
+    "rejected": CodedConcept(value="VF.REJECTED", meaning="Rejected", scheme_designator="99VOXFLOW"),
+    "corrected": CodedConcept(value="VF.CORRECTED", meaning="Corrected", scheme_designator="99VOXFLOW"),
+    "pending": CodedConcept(value="VF.PENDING", meaning="Pending", scheme_designator="99VOXFLOW"),
+}
+_DICE_NAME = CodedConcept(
+    value="VF.DICE",
+    meaning="Dice Similarity Coefficient",
+    scheme_designator="99VOXFLOW",
+)
 
 @dataclass(frozen=True, slots=True)
 class ModelIdentity:
@@ -203,7 +224,8 @@ def build_measurement_sr(
     measurements: Sequence[dict[str, Any]],
     identity: ModelIdentity,
 ) -> ComprehensiveSR:
-    """TID1500 ComprehensiveSR from selected findings (volume / diameter / probability)."""
+    """TID1500 ComprehensiveSR: volume/diameter as Measurement; probability as DCM.Probability;
+    review status as QualitativeEvaluation (N-B7)."""
     device_uid = generate_uid()
     observer = ObserverContext(
         observer_type=codes.DCM.Device,
@@ -222,6 +244,8 @@ def build_measurement_sr(
         label = str(item.get("label") or "Finding")
         tracking = TrackingIdentifier(uid=generate_uid(), identifier=label[:64])
         meas_list: list[Measurement] = []
+        qual_list: list[QualitativeEvaluation] = []
+
         if item.get("volume_mm3") is not None:
             meas_list.append(
                 Measurement(
@@ -238,26 +262,45 @@ def build_measurement_sr(
                     unit=codes.UCUM.Millimeter,
                 )
             )
-        if item.get("confidence") is not None:
+        # Probability / confidence — DCM.Probability (not Finding + NoUnits)
+        prob = item.get("probability")
+        if prob is None:
+            prob = item.get("confidence")
+        if prob is not None:
             meas_list.append(
                 Measurement(
-                    name=codes.DCM.Finding,
-                    value=float(item["confidence"]),
+                    name=codes.DCM.Probability,
+                    value=float(prob),
                     unit=codes.UCUM.NoUnits,
                 )
             )
-        if not meas_list:
+        if item.get("dice") is not None:
+            meas_list.append(
+                Measurement(
+                    name=_DICE_NAME,
+                    value=float(item["dice"]),
+                    unit=codes.UCUM.NoUnits,
+                )
+            )
+
+        review = str(item.get("review_status") or "pending")
+        if review in _REVIEW_VALUES:
+            qual_list.append(
+                QualitativeEvaluation(name=_REVIEW_NAME, value=_REVIEW_VALUES[review])
+            )
+
+        if not meas_list and not qual_list:
             continue
         groups.append(
             MeasurementsAndQualitativeEvaluations(
                 tracking_identifier=tracking,
                 finding_type=codes.SCT.Lesion,
-                measurements=meas_list,
+                measurements=meas_list or None,
+                qualitative_evaluations=qual_list or None,
             )
         )
 
     if not groups:
-        # At least one empty-safe measurement group so SR validates
         groups.append(
             MeasurementsAndQualitativeEvaluations(
                 tracking_identifier=TrackingIdentifier(
@@ -314,8 +357,16 @@ def build_gsps_boxes(
         by_slice.setdefault(int(si), []).append(box)
 
     annotations: list[GraphicAnnotation] = []
+    skipped = 0
     for slice_index, items in by_slice.items():
         if slice_index < 0 or slice_index >= len(source_images):
+            skipped += len(items)
+            logger.warning(
+                "gsps_skip_oob_slice index=%s n_images=%s boxes=%s",
+                slice_index,
+                len(source_images),
+                len(items),
+            )
             continue
         graphics: list[GraphicObject] = []
         for box in items:
@@ -343,6 +394,9 @@ def build_gsps_boxes(
                     graphic_objects=graphics,
                 )
             )
+
+    if boxes and skipped == len([b for b in boxes if b.get("slice_index") is not None and b.get("bbox") is not None]):
+        raise ValueError(f"全部检测框 slice_index 越界（源序列 {len(source_images)} 层）")
 
     return GrayscaleSoftcopyPresentationState(
         referenced_images=list(source_images),

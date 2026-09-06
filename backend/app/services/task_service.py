@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import jsonschema
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.domain.contracts import InferenceContext, InferenceResult, ModelPlugin, SeriesMeta, WorkDir
@@ -110,6 +110,7 @@ class TaskService:
         page_size: int = 20,
         status: str | None = None,
         model_id: str | None = None,
+        q: str | None = None,
     ) -> tuple[list[TaskRow], int]:
         stmt = select(TaskRow)
         count_stmt = select(func.count()).select_from(TaskRow)
@@ -119,6 +120,18 @@ class TaskService:
         if model_id:
             stmt = stmt.where(TaskRow.model_id == model_id)
             count_stmt = count_stmt.where(TaskRow.model_id == model_id)
+        if q:
+            pattern = f"%{q.strip()}%"
+            clause = or_(
+                TaskRow.task_id.ilike(pattern),
+                TaskRow.series_uid.ilike(pattern),
+                TaskRow.study_uid.ilike(pattern),
+                TaskRow.model_id.ilike(pattern),
+                TaskRow.error_code.ilike(pattern),
+                TaskRow.error_message.ilike(pattern),
+            )
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
         total = int(self.db.scalar(count_stmt) or 0)
         rows = self.db.scalars(
             stmt.order_by(TaskRow.created_at.desc()).offset((page - 1) * page_size).limit(page_size)

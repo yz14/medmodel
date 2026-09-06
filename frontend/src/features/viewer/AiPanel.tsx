@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Play, Square } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatMs } from '@/lib/format'
@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ModelParamsForm } from '@/features/models/ModelParamsForm'
-import { FindingsList, buildFindings, type Finding } from '@/features/viewer/FindingsList'
+import { FindingsList, buildFindings, type Finding, type FindingReviewStatus } from '@/features/viewer/FindingsList'
 import { ReportPanel } from '@/features/viewer/ReportPanel'
 import { useTaskSSE } from '@/features/tasks/useTaskSSE'
 import { useViewerStore } from '@/stores/viewer-store'
@@ -47,6 +47,8 @@ export function AiPanel({
 
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
   const [selectedFindingIds, setSelectedFindingIds] = useState<string[]>([])
+  const [reviews, setReviews] = useState<Record<string, FindingReviewStatus>>({})
+  const seededResultKey = useRef<string | null>(null)
 
   const modelsQuery = useQuery({
     queryKey: ['models', 'enabled'],
@@ -89,21 +91,18 @@ export function AiPanel({
     setParams(defaults)
   }, [selected?.id])
 
+  const { connected: sseConnected } = useTaskSSE(activeTaskId, !!activeTaskId)
+
   const taskQuery = useQuery({
     queryKey: ['task', activeTaskId],
     queryFn: () => api.getTask(activeTaskId!),
     enabled: !!activeTaskId,
     refetchInterval: (q) => {
       const status = q.state.data?.status as TaskStatus | undefined
-      return status === 'queued' || status === 'running' ? 5000 : false
+      if (!(status === 'queued' || status === 'running')) return false
+      return sseConnected ? false : 3000
     },
   })
-
-  useTaskSSE(
-    activeTaskId,
-    !!activeTaskId &&
-      (!taskQuery.data?.status || ['queued', 'running'].includes(taskQuery.data.status)),
-  )
 
   useEffect(() => {
     const status = taskQuery.data?.status
@@ -121,6 +120,9 @@ export function AiPanel({
     onSuccess: (res) => {
       setResult(null)
       setHighlightedId(null)
+      setSelectedFindingIds([])
+      setReviews({})
+      seededResultKey.current = null
       setActiveTaskId(res.task_id)
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       void queryClient.invalidateQueries({ queryKey: ['overview'] })
@@ -138,9 +140,14 @@ export function AiPanel({
   const busy = task?.status === 'queued' || task?.status === 'running'
   const findings = useMemo(() => buildFindings(result), [result])
 
+  // Seed selection once per task result; do not override manual unchecks (N-F6).
   useEffect(() => {
+    const key = activeTaskId && findings.length ? `${activeTaskId}:${findings.map((f) => f.id).join(',')}` : null
+    if (!key || key === seededResultKey.current) return
+    seededResultKey.current = key
     setSelectedFindingIds(findings.map((f) => f.id))
-  }, [findings])
+    setReviews({})
+  }, [activeTaskId, findings])
 
   const onJump = useCallback(
     (finding: Finding) => {
@@ -154,6 +161,14 @@ export function AiPanel({
     setSelectedFindingIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
+  }, [])
+
+  const onSelectAll = useCallback((ids: string[]) => {
+    setSelectedFindingIds(ids)
+  }, [])
+
+  const onReviewChange = useCallback((id: string, status: FindingReviewStatus) => {
+    setReviews((prev) => ({ ...prev, [id]: status }))
   }, [])
 
   return (
@@ -246,11 +261,19 @@ export function AiPanel({
             <div className="space-y-2 rounded-lg border border-border p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted">显示分割掩膜</span>
-                <Switch checked={showMasks} onCheckedChange={setShowMasks} />
+                <Switch
+                  checked={showMasks}
+                  onCheckedChange={setShowMasks}
+                  aria-label="显示分割掩膜"
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted">显示检测框</span>
-                <Switch checked={showBoxes} onCheckedChange={setShowBoxes} />
+                <Switch
+                  checked={showBoxes}
+                  onCheckedChange={setShowBoxes}
+                  aria-label="显示检测框"
+                />
               </div>
               <div>
                 <div className="mb-1 flex justify-between text-[11px] text-muted">
@@ -276,10 +299,17 @@ export function AiPanel({
               highlightedId={highlightedId}
               selectedIds={selectedFindingIds}
               onToggleSelect={onToggleSelect}
+              onSelectAll={onSelectAll}
+              reviews={reviews}
+              onReviewChange={onReviewChange}
             />
 
             {activeTaskId && (
-              <ReportPanel taskId={activeTaskId} findingIds={selectedFindingIds} />
+              <ReportPanel
+                taskId={activeTaskId}
+                findingIds={selectedFindingIds}
+                reviews={reviews}
+              />
             )}
           </div>
         )}

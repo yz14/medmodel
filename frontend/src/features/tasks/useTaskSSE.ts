@@ -1,34 +1,50 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { subscribeSse } from '@/lib/sse'
 import type { TaskSummary } from '@/types/api'
 
 /**
- * SSE as primary live channel for task progress (B-8).
- * Patches React Query cache; stops after terminal status.
+ * SSE as primary live channel for task progress (B-8 / N-F8).
+ * Patches React Query cache; exposes reactive `connected` so pollers can back off.
  */
 export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
   const queryClient = useQueryClient()
-  const connectedRef = useRef(false)
+  const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    if (!taskId || !enabled) return
-
-    const current = queryClient.getQueryData<TaskSummary>(['task', taskId])
-    if (current && ['succeeded', 'failed', 'canceled'].includes(current.status)) {
+    if (!taskId || !enabled) {
+      setConnected(false)
       return
     }
 
+    const current = queryClient.getQueryData<TaskSummary>(['task', taskId])
+    if (current && ['succeeded', 'failed', 'canceled'].includes(current.status)) {
+      setConnected(false)
+      return
+    }
+
+    setConnected(false)
     return subscribeSse(api.taskEventsUrl(taskId), {
       onOpen: () => {
-        connectedRef.current = true
+        setConnected(true)
       },
       onEvent: (data) => {
         const type = String(data.type ?? '')
         if (type === 'ping' || type === 'snapshot' || type === 'progress' || type === 'running' || type === 'queued') {
           queryClient.setQueryData<TaskSummary>(['task', taskId], (old) => {
-            const base = old ?? ({ task_id: taskId, series_uid: '', model_id: '', params: {}, status: 'queued', progress: 0, cache_hit: false, artifacts: [] } as TaskSummary)
+            const base =
+              old ??
+              ({
+                task_id: taskId,
+                series_uid: '',
+                model_id: '',
+                params: {},
+                status: 'queued',
+                progress: 0,
+                cache_hit: false,
+                artifacts: [],
+              } as TaskSummary)
             return {
               ...base,
               status: (data.status as TaskSummary['status']) ?? base.status,
@@ -56,10 +72,10 @@ export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
         }
       },
       onError: () => {
-        connectedRef.current = false
+        setConnected(false)
       },
     })
   }, [taskId, enabled, queryClient])
 
-  return { sseConnected: connectedRef }
+  return { connected }
 }

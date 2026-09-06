@@ -25,7 +25,11 @@ export function SettingsPage() {
                 <div className="text-sm text-fg-strong">深色主题</div>
                 <div className="text-xs text-muted">阅片默认深色，可切换浅色管理视图</div>
               </div>
-              <Switch checked={theme === 'dark'} onCheckedChange={(v) => setTheme(v ? 'dark' : 'light')} />
+              <Switch
+                checked={theme === 'dark'}
+                onCheckedChange={(v) => setTheme(v ? 'dark' : 'light')}
+                aria-label="深色主题"
+              />
             </div>
           </CardContent>
         </Card>

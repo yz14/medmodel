@@ -156,12 +156,19 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  listTasks: (params: { page?: number; page_size?: number; status?: string; model_id?: string } = {}) => {
+  listTasks: (params: {
+    page?: number
+    page_size?: number
+    status?: string
+    model_id?: string
+    q?: string
+  } = {}) => {
     const qs = new URLSearchParams()
     if (params.page) qs.set('page', String(params.page))
     if (params.page_size) qs.set('page_size', String(params.page_size))
     if (params.status) qs.set('status', params.status)
     if (params.model_id) qs.set('model_id', params.model_id)
+    if (params.q) qs.set('q', params.q)
     const q = qs.toString()
     return request<Page<TaskSummary>>(`/api/v1/tasks${q ? `?${q}` : ''}`)
   },
@@ -192,6 +199,7 @@ export const api = {
     taskId: string,
     body: {
       finding_ids?: string[]
+      reviews?: { finding_id: string; status: string; note?: string | null }[]
       export_seg?: boolean
       export_sr?: boolean
       export_gsps?: boolean

@@ -1,7 +1,8 @@
-"""Structured Chinese report + DICOM SEG/SR/GSPS export for succeeded tasks."""
+﻿"""Structured Chinese report + DICOM SEG/SR/GSPS export for succeeded tasks."""
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.enums import TaskStatus
 from app.imaging.dicom_export import (
     ModelIdentity,
     build_gsps_boxes,
@@ -21,7 +23,15 @@ from app.imaging.dicom_export import (
 )
 from app.infra.orm import ArtifactRow, InstanceRow, SeriesRow, TaskRow
 from app.infra.storage import StorageService
-from app.domain.enums import TaskStatus
+
+logger = logging.getLogger(__name__)
+
+_REVIEW_LABEL = {
+    "pending": "待审",
+    "accepted": "已接受",
+    "rejected": "已拒绝",
+    "corrected": "已修正",
+}
 
 
 def _parse_finding_id(fid: str) -> tuple[str, str]:
@@ -60,6 +70,10 @@ def render_chinese_report(
     boxes = [s for s in selected if s["kind"] == "box"]
     preds = [s for s in selected if s["kind"] == "prediction"]
 
+    def _review_tag(item: dict[str, Any]) -> str:
+        status = str(item.get("review_status") or "pending")
+        return _REVIEW_LABEL.get(status, status)
+
     if masks:
         lines.append("一、分割发现")
         for i, m in enumerate(masks, 1):
@@ -69,7 +83,7 @@ def render_chinese_report(
             dice_s = f"{float(dice):.3f}" if isinstance(dice, (int, float)) else "—"
             layers = m.get("slice_count")
             lines.append(
-                f"  {i}. {m['label']}（label={m.get('label_id')}）"
+                f"  {i}. [{_review_tag(m)}] {m['label']}（label={m.get('label_id')}）"
                 f" · 体积 {vol_s} · Dice {dice_s} · 层数 {layers if layers is not None else '—'}"
             )
         lines.append("")
@@ -84,7 +98,7 @@ def render_chinese_report(
             slice_i = b.get("slice_index")
             slice_s = f"#{int(slice_i) + 1}" if isinstance(slice_i, int) else "—"
             lines.append(
-                f"  {i}. {b['label']} · 置信度 {conf_s} · 直径 {diam_s} · 所在层 {slice_s}"
+                f"  {i}. [{_review_tag(b)}] {b['label']} · 置信度 {conf_s} · 直径 {diam_s} · 所在层 {slice_s}"
             )
         lines.append("")
 
@@ -93,18 +107,31 @@ def render_chinese_report(
         for i, p in enumerate(preds, 1):
             prob = p.get("probability")
             prob_s = f"{float(prob) * 100:.1f}%" if isinstance(prob, (int, float)) else "—"
-            lines.append(f"  {i}. {p['label']} · 概率 {prob_s}")
+            lines.append(f"  {i}. [{_review_tag(p)}] {p['label']} · 概率 {prob_s}")
         lines.append("")
 
     if not selected:
         lines.append("（未勾选任何 finding）")
+        lines.append("")
+    else:
+        counts = {
+            "accepted": sum(1 for s in selected if s.get("review_status") == "accepted"),
+            "rejected": sum(1 for s in selected if s.get("review_status") == "rejected"),
+            "corrected": sum(1 for s in selected if s.get("review_status") == "corrected"),
+            "pending": sum(1 for s in selected if s.get("review_status") in (None, "pending")),
+        }
+        lines.append("—— 审阅统计 ——")
+        lines.append(
+            f"接受 {counts['accepted']} · 拒绝 {counts['rejected']} · "
+            f"修正 {counts['corrected']} · 待审 {counts['pending']}"
+        )
         lines.append("")
 
     lines.extend(
         [
             "—— 导出说明 ——",
             "本报告可同步导出 DICOM SEG（分割）、SR-TID1500（测量）、GSPS（检出框），",
-            "并在 Contributing Equipment 中写入模型身份。",
+            "DICOM 产物仅包含已接受/已修正 findings；并在 Contributing Equipment 中写入模型身份。",
             "",
             "【免责声明】本报告由演示/科研模型自动生成，不可作为临床诊断依据。",
         ]
@@ -122,6 +149,7 @@ class ReportService:
         task_id: str,
         finding_ids: list[str],
         *,
+        reviews: list[dict[str, Any]] | None = None,
         export_seg: bool = True,
         export_sr: bool = True,
         export_gsps: bool = True,
@@ -133,7 +161,12 @@ class ReportService:
             raise LookupError(f"status={task.status}")
 
         result = task.result_json
-        selected = self._resolve_findings(result, finding_ids)
+        review_map = {
+            str(r.get("finding_id")): str(r.get("status") or "pending")
+            for r in (reviews or [])
+            if r.get("finding_id")
+        }
+        selected = self._resolve_findings(result, finding_ids, review_map)
         if finding_ids and not selected:
             raise ValueError("finding_ids 未匹配到任何结果项")
 
@@ -154,20 +187,27 @@ class ReportService:
             model_version=task.model_version or str(result.get("model_version") or "0"),
         )
 
+        exportable = [s for s in selected if s.get("review_status") in {"accepted", "corrected"}]
+        if not any(s.get("review_status") in {"accepted", "rejected", "corrected"} for s in selected):
+            exportable = list(selected)
+
         need_dicom = export_seg or export_sr or export_gsps
         source_images: list[Any] = []
-        if need_dicom:
+        if need_dicom and exportable:
             source_images = self._load_series_images(task.series_uid)
 
-        mask_selected = [s for s in selected if s["kind"] == "mask"]
-        box_selected = [s for s in selected if s["kind"] == "box"]
+        mask_selected = [s for s in exportable if s["kind"] == "mask"]
+        box_selected = [s for s in exportable if s["kind"] == "box"]
 
         if export_seg and mask_selected and source_images:
             stack_dir = self._mask_stack_dir(result)
             if stack_dir is not None:
                 volume = load_label_stack(stack_dir, len(source_images), prefix="label")
+                if int(volume.shape[0]) != len(source_images):
+                    raise ValueError(
+                        f"分割栈层数 {volume.shape[0]} 与源序列 {len(source_images)} 不一致"
+                    )
                 segment_defs = [(int(m["label_id"]), str(m["label"])) for m in mask_selected]
-                # Restrict volume to selected labels
                 keep = {int(m["label_id"]) for m in mask_selected}
                 filtered = np_where_labels(volume, keep)
                 seg = build_segmentation(
@@ -184,17 +224,22 @@ class ReportService:
                     )
                 )
 
-        if export_sr and selected and source_images:
+        if export_sr and exportable and source_images:
             measurements = []
-            for s in selected:
-                measurements.append(
-                    {
-                        "label": s.get("label"),
-                        "volume_mm3": s.get("volume_mm3"),
-                        "diameter_mm": s.get("diameter_mm"),
-                        "confidence": s.get("confidence") or s.get("probability") or s.get("dice"),
-                    }
-                )
+            for s in exportable:
+                item: dict[str, Any] = {
+                    "label": s.get("label"),
+                    "volume_mm3": s.get("volume_mm3"),
+                    "diameter_mm": s.get("diameter_mm"),
+                    "review_status": s.get("review_status") or "pending",
+                }
+                if s.get("confidence") is not None:
+                    item["probability"] = s.get("confidence")
+                elif s.get("probability") is not None:
+                    item["probability"] = s.get("probability")
+                if s.get("dice") is not None:
+                    item["dice"] = s.get("dice")
+                measurements.append(item)
             sr = build_measurement_sr(
                 source_images, measurements=measurements, identity=identity
             )
@@ -230,9 +275,14 @@ class ReportService:
             "artifacts": artifacts,
         }
 
-    def _resolve_findings(self, result: dict[str, Any], finding_ids: list[str]) -> list[dict[str, Any]]:
+    def _resolve_findings(
+        self,
+        result: dict[str, Any],
+        finding_ids: list[str],
+        review_map: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        review_map = review_map or {}
         if not finding_ids:
-            # default: all findings
             ids: list[str] = []
             for m in result.get("masks") or []:
                 ids.append(f"mask-{m['label_id']}")
@@ -249,6 +299,7 @@ class ReportService:
 
         for fid in finding_ids:
             kind, rest = _parse_finding_id(fid)
+            status = review_map.get(fid, "pending")
             if kind == "mask":
                 m = masks_by_id.get(rest)
                 if not m:
@@ -262,6 +313,7 @@ class ReportService:
                         "volume_mm3": m.get("volume_mm3"),
                         "dice": m.get("dice"),
                         "slice_count": len(m.get("slice_indices") or []),
+                        "review_status": status,
                     }
                 )
             elif kind == "box":
@@ -277,6 +329,7 @@ class ReportService:
                         "diameter_mm": b.get("diameter_mm"),
                         "slice_index": b.get("slice_index"),
                         "bbox": b.get("bbox"),
+                        "review_status": status,
                     }
                 )
             else:
@@ -289,6 +342,7 @@ class ReportService:
                         "kind": "prediction",
                         "label": p.get("label") or rest,
                         "probability": p.get("probability"),
+                        "review_status": status,
                     }
                 )
         return selected
@@ -320,12 +374,18 @@ class ReportService:
         missing = [p for p in paths if not p.is_file()]
         if missing:
             raise FileNotFoundError(f"缺失 DICOM 文件: {missing[0]}")
+        if series.num_instances and int(series.num_instances) != len(paths):
+            logger.warning(
+                "series_instance_count_mismatch series=%s db=%s files=%s",
+                series_uid,
+                series.num_instances,
+                len(paths),
+            )
         return load_source_images(paths)
 
     def _register_artifact(
         self, task: TaskRow, path: Path, media_type: str, *, name: str
     ) -> dict[str, Any]:
-        # Ensure unique name among task artifacts
         existing = {a.name for a in task.artifacts}
         final_name = name
         if final_name in existing:

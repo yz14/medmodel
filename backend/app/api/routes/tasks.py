@@ -54,9 +54,12 @@ def list_tasks(
     page_size: int = Query(20, ge=1, le=200),
     status_filter: str | None = Query(None, alias="status"),
     model_id: str | None = None,
+    q: str | None = Query(None, description="Search task_id / series / model / error"),
     svc: TaskService = Depends(get_task_service),
 ) -> Page[TaskSummary]:
-    rows, total = svc.list_tasks(page=page, page_size=page_size, status=status_filter, model_id=model_id)
+    rows, total = svc.list_tasks(
+        page=page, page_size=page_size, status=status_filter, model_id=model_id, q=q
+    )
     return Page(
         items=[TaskSummary.model_validate(svc.task_to_dict(t)) for t in rows],
         total=total,
@@ -199,6 +202,7 @@ def create_report(
         payload = reports.generate(
             task_id,
             body.finding_ids,
+            reviews=[r.model_dump() for r in body.reviews],
             export_seg=body.export_seg,
             export_sr=body.export_sr,
             export_gsps=body.export_gsps,

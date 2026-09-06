@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from './button'
 
@@ -20,16 +20,33 @@ export function Dialog({
   )
 }
 
+export function DialogDescription({
+  className,
+  children,
+  ...props
+}: ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      className={cn('text-xs leading-relaxed text-muted', className)}
+      {...props}
+    >
+      {children}
+    </DialogPrimitive.Description>
+  )
+}
+
 export function DialogContent({
   className,
   children,
   onClose,
   title,
+  description,
 }: {
   className?: string
   children: ReactNode
   onClose?: () => void
   title?: string
+  description?: string
 }) {
   return (
     <DialogPrimitive.Portal>
@@ -39,7 +56,7 @@ export function DialogContent({
           'fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface-1 shadow-xl focus:outline-none',
           className,
         )}
-        aria-describedby={undefined}
+        {...(description ? {} : { 'aria-describedby': undefined })}
       >
         {(title || onClose) && (
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -59,7 +76,10 @@ export function DialogContent({
             )}
           </div>
         )}
-        <div className="p-4">{children}</div>
+        <div className="space-y-3 p-4">
+          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {children}
+        </div>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   )

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import { Check, Pencil, X } from 'lucide-react'
 import { formatPercent } from '@/lib/format'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
@@ -5,16 +7,25 @@ import { cn } from '@/lib/utils'
 import type { InferenceResult } from '@/types/api'
 
 export type FindingKind = 'mask' | 'box' | 'prediction'
+export type FindingReviewStatus = 'pending' | 'accepted' | 'rejected' | 'corrected'
 
 export interface Finding {
   id: string
   kind: FindingKind
   label: string
   score: number
+  scoreKind: 'dice' | 'confidence' | 'probability'
   color?: string
   sliceIndex?: number | null
   meta?: string
   maskLabelId?: number
+}
+
+const REVIEW_LABEL: Record<FindingReviewStatus, string> = {
+  pending: '待审',
+  accepted: '已接受',
+  rejected: '已拒绝',
+  corrected: '已修正',
 }
 
 /** Unify masks / boxes / predictions into a confidence-sorted findings list (C-2). */
@@ -33,6 +44,7 @@ export function buildFindings(result: InferenceResult | null | undefined): Findi
       kind: 'mask',
       label: m.label_name,
       score: typeof m.dice === 'number' ? m.dice : 0.9,
+      scoreKind: 'dice',
       color: m.color,
       sliceIndex,
       meta: [vol, layers].filter(Boolean).join(' · '),
@@ -48,6 +60,7 @@ export function buildFindings(result: InferenceResult | null | undefined): Findi
       kind: 'box',
       label: b.label,
       score: b.confidence,
+      scoreKind: 'confidence',
       sliceIndex: b.slice_index,
       meta: [diam, slice].filter(Boolean).join(' · '),
     })
@@ -59,11 +72,18 @@ export function buildFindings(result: InferenceResult | null | undefined): Findi
       kind: 'prediction',
       label: p.label,
       score: p.probability,
+      scoreKind: 'probability',
       meta: '分类',
     })
   }
 
   return items.sort((a, b) => b.score - a.score)
+}
+
+function scoreCaption(kind: Finding['scoreKind']): string {
+  if (kind === 'dice') return 'Dice'
+  if (kind === 'confidence') return '置信度'
+  return '概率'
 }
 
 export function FindingsList({
@@ -74,6 +94,9 @@ export function FindingsList({
   highlightedId,
   selectedIds,
   onToggleSelect,
+  onSelectAll,
+  reviews,
+  onReviewChange,
 }: {
   findings: Finding[]
   enabledMaskIds: number[]
@@ -82,6 +105,9 @@ export function FindingsList({
   highlightedId?: string | null
   selectedIds?: string[]
   onToggleSelect?: (id: string) => void
+  onSelectAll?: (ids: string[]) => void
+  reviews?: Record<string, FindingReviewStatus>
+  onReviewChange?: (id: string, status: FindingReviewStatus) => void
 }) {
   if (!findings.length) {
     return <p className="text-[11px] text-muted">暂无 findings</p>
@@ -89,24 +115,21 @@ export function FindingsList({
 
   const selectable = typeof onToggleSelect === 'function'
   const selected = new Set(selectedIds ?? [])
+  const allSelected = findings.length > 0 && findings.every((f) => selected.has(f.id))
+  const reviewable = typeof onReviewChange === 'function'
 
   return (
     <div className="space-y-2" data-testid="findings-list">
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-medium text-fg-strong">Findings</div>
-        {selectable && (
+        {selectable && onSelectAll && (
           <button
             type="button"
             className="text-[10px] text-muted hover:text-fg"
-            onClick={() => {
-              const allSelected = findings.every((f) => selected.has(f.id))
-              for (const f of findings) {
-                const isOn = selected.has(f.id)
-                if (allSelected ? isOn : !isOn) onToggleSelect!(f.id)
-              }
-            }}
+            data-testid="findings-select-all"
+            onClick={() => onSelectAll(allSelected ? [] : findings.map((f) => f.id))}
           >
-            {findings.every((f) => selected.has(f.id)) ? '取消全选' : '全选'}
+            {allSelected ? '取消全选' : '全选'}
           </button>
         )}
       </div>
@@ -117,14 +140,17 @@ export function FindingsList({
             ? enabledMaskIds.includes(f.maskLabelId)
             : true
         const checked = selected.has(f.id)
+        const review = reviews?.[f.id] ?? 'pending'
         return (
           <div
             key={f.id}
             className={cn(
               'rounded-lg border px-2 py-2 transition-colors',
               active ? 'border-brand bg-brand/10' : 'border-border',
+              review === 'rejected' && 'opacity-60',
             )}
             data-testid={`finding-${f.kind}`}
+            data-review={review}
           >
             <div className="flex items-center gap-2">
               {selectable && (
@@ -158,16 +184,90 @@ export function FindingsList({
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-fg">{f.label}</span>
                   <span className="shrink-0 text-[10px] tabular-nums text-muted">
-                    {formatPercent(f.score, 0)}
+                    {scoreCaption(f.scoreKind)} {formatPercent(f.score, 0)}
                   </span>
                 </div>
                 {f.meta && <div className="mt-0.5 text-[10px] text-muted">{f.meta}</div>}
                 <Progress value={f.score} className="mt-1.5 h-1" />
               </button>
             </div>
+
+            {reviewable && (
+              <div className="mt-2 flex items-center gap-1" role="group" aria-label={`${f.label} 审阅`}>
+                <ReviewButton
+                  active={review === 'accepted'}
+                  label="接受"
+                  testId={`finding-accept-${f.id}`}
+                  onClick={() => onReviewChange!(f.id, review === 'accepted' ? 'pending' : 'accepted')}
+                  icon={<Check className="h-3 w-3" />}
+                  tone="success"
+                />
+                <ReviewButton
+                  active={review === 'rejected'}
+                  label="拒绝"
+                  testId={`finding-reject-${f.id}`}
+                  onClick={() => onReviewChange!(f.id, review === 'rejected' ? 'pending' : 'rejected')}
+                  icon={<X className="h-3 w-3" />}
+                  tone="danger"
+                />
+                <ReviewButton
+                  active={review === 'corrected'}
+                  label="修正"
+                  testId={`finding-correct-${f.id}`}
+                  onClick={() =>
+                    onReviewChange!(f.id, review === 'corrected' ? 'pending' : 'corrected')
+                  }
+                  icon={<Pencil className="h-3 w-3" />}
+                  tone="warning"
+                />
+                <span className="ml-auto text-[10px] text-muted">{REVIEW_LABEL[review]}</span>
+              </div>
+            )}
           </div>
         )
       })}
     </div>
+  )
+}
+
+function ReviewButton({
+  active,
+  label,
+  testId,
+  onClick,
+  icon,
+  tone,
+}: {
+  active: boolean
+  label: string
+  testId: string
+  onClick: () => void
+  icon: ReactNode
+  tone: 'success' | 'danger' | 'warning'
+}) {
+  const toneClass =
+    tone === 'success'
+      ? 'border-success/40 text-success data-[on=true]:bg-success/15'
+      : tone === 'danger'
+        ? 'border-danger/40 text-danger data-[on=true]:bg-danger/15'
+        : 'border-warning/40 text-warning data-[on=true]:bg-warning/15'
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      data-on={active}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[10px] transition-colors',
+        toneClass,
+        !active && 'opacity-70 hover:opacity-100',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }

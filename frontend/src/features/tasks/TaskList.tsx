@@ -66,7 +66,25 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
                         缓存
                       </Badge>
                     )}
+                    {task.error_code && (
+                      <Badge
+                        variant="danger"
+                        className="max-w-[9rem] truncate font-mono font-normal"
+                        title={task.error_message || task.error_code}
+                        data-testid={`task-error-${task.task_id}`}
+                      >
+                        {task.error_code}
+                      </Badge>
+                    )}
                   </div>
+                  {task.error_message && (
+                    <div
+                      className="mt-1 line-clamp-2 max-w-[14rem] text-[10px] text-danger/90"
+                      title={task.error_message}
+                    >
+                      {task.error_message}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="min-w-36">
                   <div className="space-y-1">

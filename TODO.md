@@ -392,6 +392,16 @@ src/
 - **N-B8**：`models_hub` 仅依赖 `domain` + 本地 helpers；volume 由 orchestrator 预载进 `ctx`
 - 验证：后端 **26 passed**；前端 `npm run build` 通过
 
+### R11 验收（产品力）
+- **Findings 三态**：接受 / 拒绝 / 修正 → 中文报告审阅统计；DICOM 仅导出 accepted/corrected
+- **N-F6**：`onSelectAll` 原子全选；结果种子只跑一次，不覆盖手动取消
+- **N-F7**：`schema.required`、enum 保留原生类型、空数字 → `NaN`（非 `undefined`）
+- **N-F8**：`useTaskSSE.connected` 驱动 `refetchInterval = connected ? false : 3000`
+- **任务中心**：模型筛选、`q` 搜索、失败 `error_code` 徽章 + hover 详情
+- **N-B7**：SR 用 `DCM.Probability` + `QualitativeEvaluation(Review)`；GSPS 越界告警；栈/序列层数校验；highdicom 反解析 Probability
+- **a11y**：Settings/导出 Switch `aria-label`；`DialogDescription` 导出
+- 验证：后端 **28 passed**；前端 `npm run build` 通过
+
 ---
 
 # TODO-3 第二轮全面审查：R1～R7 修复验证 + 新问题 + 最终整改建议
@@ -444,7 +454,7 @@ src/
 ### Major
 - [ ] **N-B5 上传全量进内存**：`await f.read()` 后再 `to_thread`；大 ZIP 直接 OOM。改为 `shutil.copyfileobj(f.file, tmp)` 流式落盘，并加 `max_upload_bytes` / `max_files` 配置与 413 响应。（`api/routes/studies.py:19-22`）
 - [x] **N-B6 未校验 `input_constraints`**：**R10 已修** — `check_input_constraints` 在 `create_task`；400 `UNSUPPORTED_INPUT`；前端 `modelCompatibility.ts` + AiPanel 灰掉；pytest MR/头颈拒绝肺模型。
-- [ ] **N-B7 报告/DICOM 导出语义与健壮性**：①`confidence`/`dice` 被塞进 TID1500 的 Measurement（`NoUnits`），标准做法是 `QualitativeEvaluation` 或用 `SCT 246501002 (Probability)` 概念编码；②越界 `slice_index` 的框静默 `continue`；③`_load_series_images` 一次读全序列；④导出前未校验 `len(source_images)==volume.shape[0]`。（`imaging/dicom_export.py:220-257, 299-365`、`services/report_service.py:157-221, 310-323`）
+- [x] **N-B7 报告/DICOM 导出语义与健壮性**：**R11 已修** — confidence/probability → `DCM.Probability` Measurement；审阅 → QualitativeEvaluation；GSPS 越界 logging + 全越界报错；分割栈与源序列层数校验；pytest `test_report_reviews_and_sr_probability_semantics`（highdicom 反解析）。
 - [x] **N-B8 分层残留**：**R10 已修** — 插件/`registry`/`base` 不再 import `infra.logging` / `imaging.dicom_io`；stdlib logging；orchestrator 预载 `ctx.volume` + `phantom_meta`。
 - [x] **N-B9 假模型"不像真"**：**R10 已修** — HU 体表/肺 mask；det/seg 肺内采样 + 预埋结节；phantom 含脊柱/气管/血管/床板；4 例多模态 demo；气管与肺隔离修复 fill_holes 泄漏。
 - [ ] **N-B10 测试仍薄**：取消只断言状态 ∈ 集合；幂等是顺序调用而非 `gather` 并发；SR/GSPS 只查 SOPClassUID 不解析内容；`dicom_io`/`mask_utils` 无单测。至少补：并发幂等、取消后不再收到 `succeeded`、缓存命中产物可下载（N-B2 回归）、时区序列化（N-B4 回归）、无 preamble DICOM、`highdicom` 反解析 SR 树。
@@ -462,9 +472,9 @@ src/
 
 ### Major
 - [x] **N-F5 指针事件 effect 依赖过重**：**R9 已修** — handlers 用 `getState()`；deps ≈ `[tool, frame]`。
-- [ ] **N-F6 Findings"全选"逻辑错误**：部分选中时执行结果是"取补集"，永远无法一次全选；且 `AiPanel` 的 `useEffect` 在 findings 变化时强制全选，会覆盖用户手动取消。（`FindingsList.tsx:95-109`、`AiPanel.tsx:115-117`）
-- [ ] **N-F7 动态表单**：未读 `schema.required`；enum 全部 `String()` 丢类型；数字清空 `onChange(undefined)` 与 zod 语义不一致。（`ModelParamsForm.tsx:9-57, 74-99`）
-- [ ] **N-F8 SSE 与 5s 轮询并行**：`task-detail` 与 `AiPanel` 均 `refetchInterval: 5000` 且同时 `useTaskSSE`。让 `useTaskSSE` 暴露 `connected`，`refetchInterval = connected ? false : 3000`。
+- [x] **N-F6 Findings"全选"逻辑错误**：**R11 已修** — `onSelectAll(ids)`；结果种子只初始化一次，不覆盖用户取消。
+- [x] **N-F7 动态表单**：**R11 已修** — `schema.required`；enum 保留 number/boolean；空数字 `NaN`。
+- [x] **N-F8 SSE 与 5s 轮询并行**：**R11 已修** — `useTaskSSE.connected`；SSE 连通时停轮询，断开回退 3s。
 - [ ] **N-F9 CS3D spike 可用性未证实 + 2.9MB chunk**：headless 实测黑屏（WebGL2 可用），控制台 `[dicomImageLoader/wadouri] no COMPRESSED_FRAME_DATA`，疑似 `/frames/{idx}` 返回内容与 wadouri 期望的完整 DICOM Part10 不匹配或 transfer syntax 元数据缺失——需手动在真浏览器验证并加 Playwright 断言"canvas 非全黑"（读像素）。此外 tools 未接入的根因是 Vite 8（rolldown）+ `@icr/polyseg-wasm`，官方模板给的解法是 `worker.rollupOptions.external: ['@icr/polyseg-wasm']` + `optimizeDeps.exclude: ['@cornerstonejs/tools']`，Vite 8 下对应 `worker.rolldownOptions`；若仍不行，可锁 Vite 7 或用 `@rollup/plugin-wasm({sync:['ICRPolySeg.wasm']})`。CS3D 依赖已进 build 产出 2.93MB chunk，即便是 lazy 也要用 `build.chunkSizeWarningLimit` 显式确认、并确保**主 `/viewer` 路径 0 依赖 CS3D**（当前 `esm--iAmJTRM.js` 需核对未被主路由引用）。
 - [x] **N-F10 ✅实测 Dashboard sparkline 是假的**：**R8 已修** — 去掉 `sparkSeriesFromValue` 与 KPI 假趋势图标；无时序则不画线。
 - [x] **N-F11 ✅实测 深色主题首屏"模型应用分布"环形图空白**：**R8 已修** — `getComputedStyle` 解析 token 为实色 + `minHeight`/`debounce`/`isAnimationActive=false`。
@@ -480,8 +490,8 @@ src/
 
 **离"医院可用"还差的（按优先级）**：
 1. **阅片器是核心，也是短板**：视口利用率（N-F13）、相机数学（N-F3）、缺"适应窗口 / 1:1 / 翻转 / 反色 / 预设 W/L（肺窗/纵隔窗/骨窗）"这些 PACS 必备按钮、缺右键/中键工具绑定、缺键盘 PageUp/PageDown 与 Home/End 切层、缺鼠标位置 HU 值探针、缺比例尺。OHIF 的工具条是标杆：主工具（W/L、Pan、Zoom、StackScroll）互斥高亮 + 预设 W/L 下拉 + 布局切换 + 测量组。
-2. **AI 结果可信度呈现**：Findings 里"Lung 95%"把 Dice 当置信度展示会误导医生；分割应显示体积/层范围，检测显示置信度/直径，分类显示概率条 + CAM。每个 finding 加"接受 / 拒绝 / 修正"三态（Aidoc/Lunit 的 read-workflow 标准），并进报告。
-3. **任务中心**：缺按模型/日期/患者筛选与搜索、缺批量操作、缺失败原因一眼可见（error_code 徽章 + hover 详情）；日志流应带 level 色与阶段过滤（已在 C-3 承诺）。
+2. **AI 结果可信度呈现**：✅ R11 Findings 接受/拒绝/修正三态进报告；分割显示体积/层、检测显示置信度/直径、分类显示概率；Dice 与置信度文案区分。
+3. **任务中心**：✅ R11 已加模型筛选、关键词搜索、失败 error_code 徽章。
 4. **数据中心**：✅ R10 已内置 4 例多模态 demo（CT 胸/头、MR 脑、DR 胸），并配合 `input_constraints`（N-B6）。
 5. **全站**：时间 8 小时偏差（N-B4）、假 sparkline（N-F10）、`Dice 0.000`、"0 帧"这类**一眼可见的错误数据**，比任何视觉打磨都更损害专业感，应最先修。
 
@@ -503,7 +513,7 @@ src/
 | **R8（数据正确性，最先做）** ✅ | N-B1～B4、N-F10/11/12 | **已验收**：pytest **22 passed**（含 N-B1/2/3/4 回归）；`npm run build` 通过；Alembic 落地 |
 | **R9（阅片器核心）** ✅ | N-F1～F5、N-F13 + 相机抽象 + W/L 预设 / 翻转 / 探针 / 比例尺 / PageUp-Down | **已验收**：`npm run build` 通过；显式 Camera2D；fit-to-window；smoke 断言 `stack-viewport` |
 | **R10（假模型像真 + 输入约束）** ✅ | N-B9 phantom 升级 + lung_seg 体表 mask + det/seg 肺内采样 + 多模态 demo；N-B6 约束校验 + 前端灰掉；N-B8 插件契约收口 | **已验收**：pytest **26 passed**；`npm run build` 通过；MR 上肺模型 `UNSUPPORTED_INPUT` |
-| **R11（产品力）** | Findings 接受/拒绝/修正三态进报告；任务中心筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y 收尾（aria-label、Dialog description） | 对照 OHIF/Lunit 截图逐项验收；`highdicom` 反解析 SR 树通过 |
+| **R11（产品力）** ✅ | Findings 三态进报告；任务筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y | **已验收**：pytest **28 passed**（含 highdicom Probability 反解析）；`npm run build` 通过 |
 | **R12（上线准备）** | N-B5 流式上传 + 限额；`/metrics` + trace_id 贯通；N-B10 测试补强（并发/取消/时区/DICOM IO）；`generate:api:check` 进 CI；N-F9 CS3D 真浏览器验证 + tools 接入或明确降级为"评估结论" | CI：ruff+mypy+pytest+tsc+build+e2e 全绿；README 写清部署与升级（Alembic）流程 |
 
 > 原则提醒：R8 的问题都是"打开就能看见的错"，成本低、收益最高，务必先于任何视觉打磨完成；R9 是产品的核心竞争力，值得投入最多时间做到手感正确；R10 决定演示效果；R11/R12 决定能否真正进医院。

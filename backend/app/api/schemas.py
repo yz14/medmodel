@@ -247,10 +247,17 @@ class ModelReadyResponse(BaseModel):
     message: str
 
 
+class FindingReviewItem(BaseModel):
+    finding_id: str
+    status: Literal["pending", "accepted", "rejected", "corrected"] = "pending"
+    note: str | None = None
+
+
 class ReportCreateRequest(BaseModel):
     """Generate structured report (+ optional DICOM exports) from selected findings."""
 
     finding_ids: list[str] = Field(default_factory=list)
+    reviews: list[FindingReviewItem] = Field(default_factory=list)
     export_seg: bool = True
     export_sr: bool = True
     export_gsps: bool = True
