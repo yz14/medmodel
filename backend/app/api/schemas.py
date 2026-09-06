@@ -205,21 +205,40 @@ class OverviewKpis(BaseModel):
     study_count: int
     model_count: int
     today_tasks: int
-    avg_dice: float
+    avg_dice: float = Field(description="Catalog mean Dice across segmentation models")
+    success_rate: float | None = Field(
+        default=None,
+        description="succeeded / (succeeded + failed); null when no finished tasks",
+    )
+    failed_today: int = 0
 class ModelMetricItem(BaseModel):
 
     id: str
     name: str
     task_type: TaskTypeLiteral | str
-    dice: float | None = None
-    iou: float | None = None
-    hd95: float | None = None
-    asd: float | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+class DailyTaskPoint(BaseModel):
+
+    date: str
+    total: int
+    succeeded: int = 0
+    failed: int = 0
+class ModelUsageItem(BaseModel):
+
+    model_id: str
+    name: str
+    task_type: TaskTypeLiteral | str
+    total: int
+    succeeded: int
+    failed: int
+    avg_runtime_ms: float | None = None
 class OverviewStats(BaseModel):
 
     kpis: OverviewKpis
     model_metrics: list[ModelMetricItem] = Field(default_factory=list)
     model_distribution: dict[str, int] = Field(default_factory=dict)
+    daily_tasks: list[DailyTaskPoint] = Field(default_factory=list)
+    model_usage: list[ModelUsageItem] = Field(default_factory=list)
     recent_tasks: list[TaskSummary] = Field(default_factory=list)
     queue: QueueStatus = Field(default_factory=lambda: QueueStatus(queued=0, running=0, max_concurrency=0))
     registered_models: int = 0

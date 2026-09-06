@@ -46,51 +46,34 @@
 
 前后端主链路已可交付：上传/解析、假模型插件、任务队列 + SSE、自定义堆栈阅片、AI 叠加、结构化报告（SEG/SR/GSPS）、数据正确性与约束、观测性与 CI、流式上传与限流等。
 
-验证：`pytest` 全绿；`npm run build` 通过。日常只跟下方「前端专项」未完成项。
+验证：`pytest` 全绿；`npm run build` 通过。日常只跟下方「前端专项」未完成 / 可选增强项。
 
 ---
 
-# 前端专项：界面美观 / 实用 / 专业 —— 重构路线（当前主线）
+# 前端专项：界面美观 / 实用 / 专业 —— 重构路线
 
 > 壳子合格，但页面更像后台而不够像医疗产品；**阅片器是全站最重要也是最弱的一页，应整体重做而非继续零敲碎打**。  
 > 标杆：OHIF / Weasis / Lunit / Aidoc / Grafana / shadcn / Carbon DataTable 等。  
-> **未完成项以本节 FE-5 为准**（FE-1～FE-4 已完成）。
+> **FE-1～FE-5 已完成**；后续为可选增强与杂项技术债。
 
 ## 一、总体结论
 
 - **保留**：路由/lazy、TanStack Query + Zustand、OpenAPI 类型、Design Token、深色主色、loading/empty/error、Radix Dialog/Tabs、Findings 列表与阶段甘特方向。
-- **FE-1～FE-3 已完成**：设计系统基座、阅片相机/图层/网格、AI Tabs 与叠加联动。
-- **FE-4 已完成**：统一 DataTable；数据/任务 URL 筛选可复现；任务批量确认；详情结构化结果卡（原始 JSON 折叠）；StudyDrawer→Sheet；上传进度/重试。
-- **仍需重做**：Dashboard 真实运营指标；模型卡指标按类型；Settings 补齐；临床/阅片首页/标注导航收口。
+- **FE-1～FE-5 已完成**：设计系统、阅片相机/图层/网格/AI、DataTable/任务、Dashboard 真实指标、模型卡按类型、Settings 与导航收口。
 
-## 二、仍开放的主要缺口（摘要）
+## 二、仍开放的可选缺口（摘要）
 
 ### 壳 / 全局
-- 顶栏缺全局搜索 / 任务铃 / 用户菜单；阅片页应自动收侧栏为图标栏。
-- 残留无用资产、开发向文案（如健康徽章）应继续收敛。
-
-### Dashboard
-- 缺真实时序与运营指标（队列水位、按模型调用、失败率、P50/P95）；无影像速览。
-- 表格/环形图信息架构仍偏空；模型列等应用中文名。
+- 顶栏缺全局搜索 / 任务铃 / 用户菜单。
 
 ### 数据中心 / 任务
-- 统一 DataTable（排序/列显隐/筛选 chip/密度/URL 同步/行选择批量）。
-- StudyDrawer 换 Sheet；上传进度与失败重试；AI 状态列。
-- 任务详情：结构化结果卡（JSON 折叠）、产物按类型分组、日志能力、深链 `?task=`。
+- `/studies` 补 `last_task` 后的 AI 状态列；日志时间线增强。
 
 ### 阅片器 / AI 面板
-- 多视口网格 + Hanging Protocol；工具条分组与窄屏收纳；ROI/角度等测量面板。
-- AI 面板改为 Tabs（分析｜检出｜图层｜报告）+ 可拖宽；自动跳代表层、hover 联动、outline 等增强。
-- CAM / 标签本地化等仍待产品化。
+- 高级 Hanging Protocol；完整测量组；窄屏工具条收纳；CAM / 标签本地化。
 
-### 模型仓库 / Settings / 其它页
-- 指标按任务类型展示；输入约束与 I/O 用表格而非 JSON；运行统计。
-- Settings：语言 / 默认 W/L·布局 / 快捷键表（实验功能开关已在 Settings）。
-- `/clinical` 报告中心化或移除；`/viewer` 首页与 `/data` 去重；标注从主导航拿掉。
-
-### 基础组件与视觉
-- FE-1 已引入 Tooltip / Toast / Sheet / Command / Select / Slider 等；后续轮次落地到各页交互。
-- 术语表 `lib/i18n/terms.ts` 已建，页面逐步改用 `t()`。
+### 其它
+- 全量 i18n（Settings 已存 locale 偏好）；CS3D 正式替换主视口。
 
 ## 三、对照标杆（勾选 = 已具备）
 
@@ -103,9 +86,10 @@
 | AI 结果 | ☑ 列表+跳层 ☑ 接受/拒绝 ☑ Tabs 面板 ☑ hover 联动 ☑ outline ☑ 自动跳代表层 |
 | 数据表 | ☑ 分页 ☑ DataTable 排序/列显隐/密度/行选择 ☑ URL 筛选 chip |
 | 任务 | ☑ Gantt·Tabs·筛选 ☑ 批量确认 ☑ 结构化结果首屏 ☐ 日志增强 |
-| 模型 | ☑ Tabs 骨架 ☐ 内容与指标按类型 |
-| Dashboard | ☐ 真实时序与运营指标 |
+| 模型 | ☑ Tabs ☑ 指标按类型 ☑ 约束/输出表格 |
+| Dashboard | ☑ 真实日任务时序 ☑ 按模型调用 ☑ 成功率 KPI |
 | a11y / 基座 | ☑ 三态·部分 a11y ☑ Toast ☑ AlertDialog ☑ 字号下限 ☑ 基座 shadcn |
+| Settings / 导航 | ☑ 语言·默认 W/L·布局·快捷键 ☑ 临床/标注/阅片首页主导航收口 |
 
 ## 四、重构方案（摘要）
 
@@ -129,11 +113,14 @@
 - 任务批量取消/重试 + AlertDialog；详情 TaskResultCards（JSON 折叠）；产物分组。
 - StudyDrawer→Sheet；上传 XHR 进度 + 失败重试。
 
-### 4.5～4.6 FE-5 总览与模型
-- Dashboard 只画真实数据；模型卡指标按类型；Settings 补齐；临床/阅片首页/标注导航收口。
-- 后端配合：`/stats/overview`、`ModelSpec.metrics`、`/studies.last_task`（如需 AI 状态列）。
+### 4.5 FE-5 总览与模型 —— ✅ 已完成
+- `/stats/overview`：`daily_tasks`（14 日）、`model_usage`、全类型 `model_metrics.metrics`、成功率 KPI。
+- Dashboard：真实柱状时序 + 按模型调用表；无数据 EmptyState（无虚构趋势）。
+- 模型卡/详情：`features/models/metrics.ts` 按 task_type；约束与输出为表格。
+- Settings：语言 / 默认 W/L·布局 / 快捷键表；阅片打开时应用默认值。
+- 导航：去掉临床/标注/阅片首页；`/viewer` → `/data`；报告说明收口到 Settings。
 
-## 五、建议轮次（当前待办）
+## 五、建议轮次
 
 | 轮 | 内容 | 验收要点 | 状态 |
 |---|---|---|---|
@@ -141,20 +128,19 @@
 | **FE-2 阅片 A** | 相机/图层 + fit + 工具条 + 四角/比例尺 + 侧栏自动折叠 | 三档宽度影像占短边 ≥90%；缩放不漂 | ✅ |
 | **FE-3 阅片 B + AI** | 网格/HP + 叠加增强 + 面板 Tabs | lung_seg 后可见掩膜并到代表层；hover/接受拒绝进报告 | ✅ |
 | **FE-4 表格与任务** | DataTable + 数据/任务页 | URL 可复现筛选；批量确认；详情首屏无原始 JSON | ✅ |
-| **FE-5 总览与模型** | Dashboard + 模型卡 + Settings | 无虚构趋势；指标按类型；约束非 JSON.stringify | 下一轮 |
-
-> 后端最小配合（FE-5）：`/stats/overview` 补 `daily_tasks` 与 per-model 统计；`ModelSpec.metrics` 按 task_type；`/studies` 补 `last_task`；掩膜 finding 勿用 `dice` 当置信度。
+| **FE-5 总览与模型** | Dashboard + 模型卡 + Settings | 无虚构趋势；指标按类型；约束非 JSON.stringify | ✅ |
 
 ## 六、优先级
-1. **下一轮 FE-5**（Dashboard 真实指标 + 模型卡/Settings 收口）。
-2. 一切「看得见的假/错」优先于纯视觉打磨。
+1. 可选增强：顶栏搜索/铃、AI 状态列（需 `last_task`）、阅片测量/窄屏、日志时间线。
+2. 一切「看得见的假/错」仍优先于纯视觉打磨。
 
 ---
 
 # 杂项技术债（可选，非阻塞 FE）
 
-- [ ] Dashboard /stats 聚合与真实时序 API
+- [ ] `/studies` 补 `last_task`（数据表 AI 状态列）
 - [ ] 日志时间线 level 色 / stage 过滤 / 自动滚动
 - [ ] 上传表单 zod 解析边界与 mutation 反馈统一走 Toast（主路径已接 Toast，边界场景可再扫）
 - [ ] Playwright E2E 全链路冒烟（上传→推理→叠加）
 - [ ] Cornerstone3D 正式替换主视口（当前为实验/降级路径，见 `docs/` 下 CS3D spike 文档）
+- [ ] 全量界面 i18n（Settings 已持久化 `locale`）

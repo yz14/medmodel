@@ -2,12 +2,9 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Database,
-  Scan,
   Boxes,
   ListTodo,
   Settings,
-  Stethoscope,
-  PenLine,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -15,14 +12,12 @@ import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui-store'
 import { Button } from '@/components/ui/button'
 
+/** FE-5: clinical / annotation / viewer-home 从主导航收口；阅片从数据中心进入。 */
 const NAV = [
   { to: '/', label: '总览', icon: LayoutDashboard, end: true },
   { to: '/data', label: '数据中心', icon: Database },
-  { to: '/viewer', label: '影像阅片', icon: Scan },
   { to: '/models', label: '模型仓库', icon: Boxes },
   { to: '/tasks', label: '推理任务', icon: ListTodo },
-  { to: '/clinical', label: '临床应用', icon: Stethoscope },
-  { to: '/annotation', label: '标注质控', icon: PenLine, soon: true },
   { to: '/settings', label: '系统设置', icon: Settings },
 ]
 
@@ -67,12 +62,7 @@ export function AppSidebar() {
             title={collapsed ? item.label : undefined}
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && (
-              <span className="flex-1 truncate">
-                {item.label}
-                {item.soon && <span className="ml-2 text-xs text-muted">即将推出</span>}
-              </span>
-            )}
+            {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
           </NavLink>
         ))}
       </nav>

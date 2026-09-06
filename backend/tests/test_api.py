@@ -619,6 +619,36 @@ def test_cls_det_metrics_no_zero_dice(client):
     assert models["nodule_det"]["metrics"].get("map", 0) > 0
 
 
+def test_stats_overview_real_series(client):
+    """FE-5: overview exposes daily_tasks + per-model usage from real task rows."""
+    c, _ = client
+    empty = c.get("/api/v1/stats/overview").json()
+    assert len(empty["daily_tasks"]) == 14
+    assert empty["daily_tasks"][-1]["total"] == 0
+    assert empty["model_usage"] == []
+    assert empty["kpis"]["success_rate"] is None
+    assert any(m["task_type"] == "detection" for m in empty["model_metrics"])
+    det = next(m for m in empty["model_metrics"] if m["id"] == "nodule_det")
+    assert "map" in det["metrics"]
+    assert "dice" not in det["metrics"]
+
+    series_uid = _chest_series_uid(c)
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {}},
+    )
+    _wait_task(c, create.json()["task_id"])
+
+    stats = c.get("/api/v1/stats/overview").json()
+    assert stats["kpis"]["today_tasks"] >= 1
+    assert stats["kpis"]["success_rate"] == 1.0
+    assert stats["daily_tasks"][-1]["total"] >= 1
+    assert stats["daily_tasks"][-1]["succeeded"] >= 1
+    usage = {u["model_id"]: u for u in stats["model_usage"]}
+    assert "lung_seg" in usage
+    assert usage["lung_seg"]["succeeded"] >= 1
+
+
 def test_multi_modal_demo_catalog(client):
     """N-B9: demo catalog includes CT chest/head, MR brain, DR chest."""
     c, _ = client

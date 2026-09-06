@@ -70,6 +70,26 @@
         }
       }
     },
+    "/api/v1/metrics": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "Prometheus Metrics",
+        "description": "Plain-text Prometheus exposition for hospital ops / Triton-style scraping.",
+        "operationId": "prometheus_metrics_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/stats/overview": {
       "get": {
         "tags": [
@@ -750,6 +770,24 @@
               ],
               "title": "Model Id"
             }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search task_id / series / model / error",
+              "title": "Q"
+            },
+            "description": "Search task_id / series / model / error"
           }
         ],
         "responses": {
@@ -1229,6 +1267,34 @@
         ],
         "title": "ClassificationPrediction"
       },
+      "DailyTaskPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded",
+            "default": 0
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "total"
+        ],
+        "title": "DailyTaskPoint"
+      },
       "DetectionBox": {
         "properties": {
           "id": {
@@ -1301,6 +1367,41 @@
           "confidence"
         ],
         "title": "DetectionBox"
+      },
+      "FindingReviewItem": {
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "title": "Finding Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              "corrected"
+            ],
+            "title": "Status",
+            "default": "pending"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finding_id"
+        ],
+        "title": "FindingReviewItem"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1639,49 +1740,12 @@
             ],
             "title": "Task Type"
           },
-          "dice": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dice"
-          },
-          "iou": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Iou"
-          },
-          "hd95": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hd95"
-          },
-          "asd": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asd"
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Metrics"
           }
         },
         "type": "object",
@@ -1896,6 +1960,67 @@
         ],
         "title": "ModelSpec"
       },
+      "ModelUsageItem": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "task_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "segmentation",
+                  "detection",
+                  "classification"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Task Type"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "succeeded": {
+            "type": "integer",
+            "title": "Succeeded"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "avg_runtime_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Runtime Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "name",
+          "task_type",
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "title": "ModelUsageItem"
+      },
       "OverviewKpis": {
         "properties": {
           "study_count": {
@@ -1912,7 +2037,25 @@
           },
           "avg_dice": {
             "type": "number",
-            "title": "Avg Dice"
+            "title": "Avg Dice",
+            "description": "Catalog mean Dice across segmentation models"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate",
+            "description": "succeeded / (succeeded + failed); null when no finished tasks"
+          },
+          "failed_today": {
+            "type": "integer",
+            "title": "Failed Today",
+            "default": 0
           }
         },
         "type": "object",
@@ -1942,6 +2085,20 @@
             },
             "type": "object",
             "title": "Model Distribution"
+          },
+          "daily_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/DailyTaskPoint"
+            },
+            "type": "array",
+            "title": "Daily Tasks"
+          },
+          "model_usage": {
+            "items": {
+              "$ref": "#/components/schemas/ModelUsageItem"
+            },
+            "type": "array",
+            "title": "Model Usage"
           },
           "recent_tasks": {
             "items": {
@@ -2134,6 +2291,13 @@
             },
             "type": "array",
             "title": "Finding Ids"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/FindingReviewItem"
+            },
+            "type": "array",
+            "title": "Reviews"
           },
           "export_seg": {
             "type": "boolean",
@@ -2734,6 +2898,17 @@
               }
             ],
             "title": "Error Message"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
           },
           "created_at": {
             "anyOf": [

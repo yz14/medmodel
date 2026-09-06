@@ -12,8 +12,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/components/ui/sonner'
 import { ModelParamsForm } from '@/features/models/ModelParamsForm'
+import {
+  constraintRows,
+  orderedMetricEntries,
+  taskTypeLabel,
+} from '@/features/models/metrics'
 import { asJsonSchema } from '@/types/api'
 
 export function ModelDetailPage() {
@@ -82,7 +88,8 @@ export function ModelDetailPage() {
   }
 
   const m = model.data
-  const constraints = m.input_constraints ?? {}
+  const constraints = constraintRows(m.input_constraints as Record<string, unknown> | undefined)
+  const metricEntries = orderedMetricEntries(m.task_type, m.metrics)
 
   return (
     <div>
@@ -91,11 +98,17 @@ export function ModelDetailPage() {
         description={`${m.id} · v${m.version}`}
         actions={
           <>
-            <Link to="/models" className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+            <Link
+              to="/models"
+              className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-surface-2"
+            >
               <ArrowLeft className="h-4 w-4" />
               返回
             </Link>
-            <Button onClick={() => patchMutation.mutate()} disabled={patchMutation.isPending || !paramsValid}>
+            <Button
+              onClick={() => patchMutation.mutate()}
+              disabled={patchMutation.isPending || !paramsValid}
+            >
               <Save className="h-4 w-4" />
               保存
             </Button>
@@ -104,7 +117,9 @@ export function ModelDetailPage() {
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge variant="info">{m.task_type}</Badge>
+        <Badge family="tag" variant="info">
+          {taskTypeLabel(m.task_type)}
+        </Badge>
         {ready.data?.ready ? (
           <span className="inline-flex items-center gap-1 text-xs text-success" data-testid="model-ready">
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -136,18 +151,18 @@ export function ModelDetailPage() {
               <p className="text-sm leading-relaxed text-muted">{m.description}</p>
               <div className="flex flex-wrap gap-2">
                 {m.modalities.map((x) => (
-                  <Badge key={x} variant="secondary">
+                  <Badge key={x} family="tag" variant="secondary">
                     {x}
                   </Badge>
                 ))}
                 {m.body_parts.map((x) => (
-                  <Badge key={x} variant="secondary">
+                  <Badge key={x} family="tag" variant="secondary">
                     {x}
                   </Badge>
                 ))}
-                {(m.tags ?? []).map((t) => (
-                  <Badge key={t} variant="secondary">
-                    {t}
+                {(m.tags ?? []).map((tag) => (
+                  <Badge key={tag} family="tag" variant="secondary">
+                    {tag}
                   </Badge>
                 ))}
               </div>
@@ -165,10 +180,22 @@ export function ModelDetailPage() {
                   <dd>{m.enabled ? '是' : '否'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted">版本历史</dt>
-                  <dd className="text-muted">v{m.version}（当前）</dd>
+                  <dt className="text-xs text-muted">任务类型</dt>
+                  <dd>{taskTypeLabel(m.task_type)}</dd>
                 </div>
               </dl>
+              {metricEntries.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {metricEntries.slice(0, 4).map((e) => (
+                    <div key={e.key} className="rounded-lg border border-border px-3 py-2">
+                      <div className="text-xs text-muted">{e.label}</div>
+                      <div className="mt-0.5 text-base tabular-nums text-fg-strong">
+                        {formatNumber(e.value, 3)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -179,9 +206,26 @@ export function ModelDetailPage() {
               <CardTitle>输入约束</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-xs text-muted">
-                {JSON.stringify(constraints, null, 2)}
-              </pre>
+              {constraints.length === 0 ? (
+                <EmptyState title="未声明输入约束" className="py-8" />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>约束项</TableHead>
+                      <TableHead>取值</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {constraints.map((row) => (
+                      <TableRow key={row.key}>
+                        <TableCell className="text-fg">{row.label}</TableCell>
+                        <TableCell className="tabular-nums text-muted">{row.value}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -192,16 +236,32 @@ export function ModelDetailPage() {
               <CardTitle>输出定义</CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-2 text-sm">
-                {(m.outputs ?? []).map((o) => (
-                  <li key={o.name} className="rounded-lg border border-border px-3 py-2">
-                    <div className="font-medium text-fg">{o.name}</div>
-                    <div className="text-xs text-muted">
-                      {o.result_type} · {o.description}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {(m.outputs ?? []).length === 0 ? (
+                <EmptyState title="未声明输出" className="py-8" />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>名称</TableHead>
+                      <TableHead>类型</TableHead>
+                      <TableHead>说明</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(m.outputs ?? []).map((o) => (
+                      <TableRow key={o.name}>
+                        <TableCell className="font-medium text-fg">{o.name}</TableCell>
+                        <TableCell>
+                          <Badge family="tag" variant="secondary">
+                            {taskTypeLabel(String(o.result_type))}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted">{o.description || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -209,17 +269,23 @@ export function ModelDetailPage() {
         <TabsContent value="metrics">
           <Card>
             <CardHeader>
-              <CardTitle>评估指标</CardTitle>
+              <CardTitle>评估指标 · {taskTypeLabel(m.task_type)}</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {Object.entries(m.metrics ?? {}).map(([k, v]) => (
-                  <div key={k} className="rounded-lg border border-border p-3">
-                    <div className="text-xs uppercase text-muted">{k}</div>
-                    <div className="mt-1 text-lg tabular-nums text-fg-strong">{formatNumber(v, 3)}</div>
-                  </div>
-                ))}
-              </div>
+              {metricEntries.length === 0 ? (
+                <EmptyState title="暂无评估指标" className="py-8" />
+              ) : (
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {metricEntries.map((e) => (
+                    <div key={e.key} className="rounded-lg border border-border p-3">
+                      <div className="text-xs text-muted">{e.label}</div>
+                      <div className="mt-1 text-lg tabular-nums text-fg-strong">
+                        {formatNumber(e.value, 3)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

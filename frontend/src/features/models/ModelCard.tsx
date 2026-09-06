@@ -2,31 +2,9 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
-import { formatMs, formatNumber, formatPercent } from '@/lib/format'
+import { formatMs, formatNumber } from '@/lib/format'
+import { primaryMetrics, taskTypeLabel } from '@/features/models/metrics'
 import type { ModelSpec } from '@/types/api'
-
-const TYPE_LABEL: Record<string, string> = {
-  segmentation: '分割',
-  detection: '检测',
-  classification: '分类',
-}
-
-function primaryMetric(model: ModelSpec): { label: string; value: string } | null {
-  const m = model.metrics
-  if (!m) return null
-  if (model.task_type === 'segmentation' && m.dice != null) {
-    return { label: 'Dice', value: formatNumber(m.dice, 3) }
-  }
-  if (model.task_type === 'classification') {
-    if (m.auc != null) return { label: 'AUC', value: formatNumber(m.auc, 3) }
-    if (m.accuracy != null) return { label: 'Accuracy', value: formatPercent(m.accuracy, 0) }
-  }
-  if (model.task_type === 'detection') {
-    if (m.map != null) return { label: 'mAP', value: formatNumber(m.map, 3) }
-    if (m.sensitivity != null) return { label: '敏感度', value: formatPercent(m.sensitivity, 0) }
-  }
-  return null
-}
 
 export function ModelCard({
   model,
@@ -37,7 +15,7 @@ export function ModelCard({
   onToggle: (enabled: boolean) => void
   toggling?: boolean
 }) {
-  const metric = primaryMetric(model)
+  const metrics = primaryMetrics(model.task_type, model.metrics, 3)
 
   return (
     <Card className="flex h-full flex-col">
@@ -63,7 +41,9 @@ export function ModelCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap gap-1.5">
-          <Badge family="tag" variant="info">{TYPE_LABEL[model.task_type] ?? model.task_type}</Badge>
+          <Badge family="tag" variant="info">
+            {taskTypeLabel(model.task_type)}
+          </Badge>
           {model.modalities.map((m) => (
             <Badge key={m} family="tag" variant="secondary">
               {m}
@@ -76,12 +56,12 @@ export function ModelCard({
             预期延迟
             <div className="text-sm text-fg tabular-nums">{formatMs(model.expected_latency_ms)}</div>
           </div>
-          {metric && (
-            <div>
-              {metric.label}
-              <div className="text-sm text-fg tabular-nums">{metric.value}</div>
+          {metrics.map((m) => (
+            <div key={m.key}>
+              {m.label}
+              <div className="text-sm text-fg tabular-nums">{formatNumber(m.value, 3)}</div>
             </div>
-          )}
+          ))}
         </div>
       </CardContent>
     </Card>

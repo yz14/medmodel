@@ -61,6 +61,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Prometheus Metrics
+         * @description Plain-text Prometheus exposition for hospital ops / Triton-style scraping.
+         */
+        get: operations["prometheus_metrics_api_v1_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stats/overview": {
         parameters: {
             query?: never;
@@ -452,6 +472,23 @@ export interface components {
             /** Probability */
             probability: number;
         };
+        /** DailyTaskPoint */
+        DailyTaskPoint: {
+            /** Date */
+            date: string;
+            /** Total */
+            total: number;
+            /**
+             * Succeeded
+             * @default 0
+             */
+            succeeded: number;
+            /**
+             * Failed
+             * @default 0
+             */
+            failed: number;
+        };
         /** DetectionBox */
         DetectionBox: {
             /** Id */
@@ -468,6 +505,19 @@ export interface components {
             bbox3d?: number[] | null;
             /** Diameter Mm */
             diameter_mm?: number | null;
+        };
+        /** FindingReviewItem */
+        FindingReviewItem: {
+            /** Finding Id */
+            finding_id: string;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "rejected" | "corrected";
+            /** Note */
+            note?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -579,14 +629,10 @@ export interface components {
             name: string;
             /** Task Type */
             task_type: ("segmentation" | "detection" | "classification") | string;
-            /** Dice */
-            dice?: number | null;
-            /** Iou */
-            iou?: number | null;
-            /** Hd95 */
-            hd95?: number | null;
-            /** Asd */
-            asd?: number | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: number;
+            };
         };
         /** ModelOutputSpec */
         ModelOutputSpec: {
@@ -669,6 +715,23 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ModelUsageItem */
+        ModelUsageItem: {
+            /** Model Id */
+            model_id: string;
+            /** Name */
+            name: string;
+            /** Task Type */
+            task_type: ("segmentation" | "detection" | "classification") | string;
+            /** Total */
+            total: number;
+            /** Succeeded */
+            succeeded: number;
+            /** Failed */
+            failed: number;
+            /** Avg Runtime Ms */
+            avg_runtime_ms?: number | null;
+        };
         /** OverviewKpis */
         OverviewKpis: {
             /** Study Count */
@@ -677,8 +740,21 @@ export interface components {
             model_count: number;
             /** Today Tasks */
             today_tasks: number;
-            /** Avg Dice */
+            /**
+             * Avg Dice
+             * @description Catalog mean Dice across segmentation models
+             */
             avg_dice: number;
+            /**
+             * Success Rate
+             * @description succeeded / (succeeded + failed); null when no finished tasks
+             */
+            success_rate?: number | null;
+            /**
+             * Failed Today
+             * @default 0
+             */
+            failed_today: number;
         };
         /** OverviewStats */
         OverviewStats: {
@@ -689,6 +765,10 @@ export interface components {
             model_distribution?: {
                 [key: string]: number;
             };
+            /** Daily Tasks */
+            daily_tasks?: components["schemas"]["DailyTaskPoint"][];
+            /** Model Usage */
+            model_usage?: components["schemas"]["ModelUsageItem"][];
             /** Recent Tasks */
             recent_tasks?: components["schemas"]["TaskSummary"][];
             queue?: components["schemas"]["QueueStatus"];
@@ -762,6 +842,8 @@ export interface components {
         ReportCreateRequest: {
             /** Finding Ids */
             finding_ids?: string[];
+            /** Reviews */
+            reviews?: components["schemas"]["FindingReviewItem"][];
             /**
              * Export Seg
              * @default true
@@ -947,6 +1029,8 @@ export interface components {
             error_code?: string | null;
             /** Error Message */
             error_message?: string | null;
+            /** Trace Id */
+            trace_id?: string | null;
             /** Created At */
             created_at?: string | null;
             /** Started At */
@@ -1032,6 +1116,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    prometheus_metrics_api_v1_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -1435,6 +1539,8 @@ export interface operations {
                 page_size?: number;
                 status?: string | null;
                 model_id?: string | null;
+                /** @description Search task_id / series / model / error */
+                q?: string | null;
             };
             header?: never;
             path?: never;

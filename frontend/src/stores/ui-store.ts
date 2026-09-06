@@ -1,17 +1,29 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { ViewportLayout } from '@/stores/viewer-store'
 
 type Theme = 'dark' | 'light'
+export type UiLocale = 'zh' | 'en'
+export type WindowPresetId = 'lung' | 'mediastinum' | 'bone' | 'brain' | 'abdomen'
 
 interface UiState {
   sidebarCollapsed: boolean
   theme: Theme
+  /** FE-5: interface language preference (terms currently zh-first). */
+  locale: UiLocale
+  /** Preferred W/L preset applied when opening a study. */
+  defaultWindowPreset: WindowPresetId
+  /** Preferred viewport grid when opening a study. */
+  defaultViewportLayout: ViewportLayout
   /** N-F9: CS3D spike is evaluation-only; off by default. */
   experimentalCs3d: boolean
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
+  setLocale: (locale: UiLocale) => void
+  setDefaultWindowPreset: (id: WindowPresetId) => void
+  setDefaultViewportLayout: (layout: ViewportLayout) => void
   setExperimentalCs3d: (v: boolean) => void
 }
 
@@ -26,6 +38,9 @@ export const useUiStore = create<UiState>()(
     (set, get) => ({
       sidebarCollapsed: false,
       theme: 'dark',
+      locale: 'zh',
+      defaultWindowPreset: 'lung',
+      defaultViewportLayout: '1x1',
       experimentalCs3d: false,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
@@ -38,6 +53,9 @@ export const useUiStore = create<UiState>()(
         applyTheme(next)
         set({ theme: next })
       },
+      setLocale: (locale) => set({ locale }),
+      setDefaultWindowPreset: (id) => set({ defaultWindowPreset: id }),
+      setDefaultViewportLayout: (layout) => set({ defaultViewportLayout: layout }),
       setExperimentalCs3d: (v) => set({ experimentalCs3d: v }),
     }),
     {
