@@ -35,3 +35,5 @@ export {
   type LayerFlags,
   type ViewerLayer,
 } from './layers'
+
+export { detectionColor, parseCssRgb } from './overlayStyle'

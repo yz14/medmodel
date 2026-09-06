@@ -91,6 +91,7 @@ export function clearMaskImageCache() {
 /**
  * Draw labelmap PNG onto overlay canvas: pixels matching enabled labels get that label's color.
  * Supports multi-label stacks (pixel value == label_id) and binary (any non-zero → first enabled).
+ * FE-3: emphasizeLabelId / hoverLabelId boost fill + draw a thin outline.
  */
 export async function paintMaskOverlay(
   canvas: HTMLCanvasElement,
@@ -101,9 +102,20 @@ export async function paintMaskOverlay(
     masks: MaskArtifact[]
     enabledIds: number[]
     opacity: number
+    emphasizeLabelId?: number | null
+    hoverLabelId?: number | null
   },
 ): Promise<boolean> {
-  const { url, width, height, masks, enabledIds, opacity } = opts
+  const {
+    url,
+    width,
+    height,
+    masks,
+    enabledIds,
+    opacity,
+    emphasizeLabelId = null,
+    hoverLabelId = null,
+  } = opts
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
@@ -137,23 +149,68 @@ export async function paintMaskOverlay(
   }
   if (!colorById.size) return false
 
-  const alpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
+  const baseAlpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
   const ids = [...colorById.keys()]
   const isBinaryFriendly = ids.length === 1
 
-  for (let i = 0; i < width * height; i++) {
-    const v = src.data[i * 4]!
-    if (v === 0) continue
-    let color = colorById.get(v)
-    if (!color && isBinaryFriendly && v > 0) {
-      color = colorById.get(ids[0]!)
+  const labelAt = (x: number, y: number): number => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return 0
+    const v = src.data[(y * width + x) * 4]!
+    if (v === 0) return 0
+    if (colorById.has(v)) return v
+    if (isBinaryFriendly && v > 0) return ids[0]!
+    return 0
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const id = labelAt(x, y)
+      if (!id) continue
+      const color = colorById.get(id)
+      if (!color) continue
+      let a = baseAlpha
+      if (emphasizeLabelId != null && id === emphasizeLabelId) a = Math.min(255, Math.round(a * 1.35))
+      else if (hoverLabelId != null && id === hoverLabelId) a = Math.min(255, Math.round(a * 1.2))
+      else if (emphasizeLabelId != null && id !== emphasizeLabelId) a = Math.round(a * 0.45)
+
+      const o = (y * width + x) * 4
+      out.data[o] = color[0]
+      out.data[o + 1] = color[1]
+      out.data[o + 2] = color[2]
+      out.data[o + 3] = a
     }
-    if (!color) continue
-    const o = i * 4
-    out.data[o] = color[0]
-    out.data[o + 1] = color[1]
-    out.data[o + 2] = color[2]
-    out.data[o + 3] = alpha
+  }
+
+  // Outline for emphasized / hovered labels
+  const outlineIds = [emphasizeLabelId, hoverLabelId].filter(
+    (v): v is number => typeof v === 'number' && enabledIds.includes(v),
+  )
+  for (const oid of new Set(outlineIds)) {
+    const color = colorById.get(oid) ?? ([255, 255, 255] as [number, number, number])
+    const edge: [number, number, number] =
+      oid === emphasizeLabelId
+        ? [255, 255, 255]
+        : [
+            Math.min(255, color[0] + 40),
+            Math.min(255, color[1] + 40),
+            Math.min(255, color[2] + 40),
+          ]
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (labelAt(x, y) !== oid) continue
+        const edgePixel =
+          labelAt(x - 1, y) !== oid ||
+          labelAt(x + 1, y) !== oid ||
+          labelAt(x, y - 1) !== oid ||
+          labelAt(x, y + 1) !== oid
+        if (!edgePixel) continue
+        const o = (y * width + x) * 4
+        out.data[o] = edge[0]
+        out.data[o + 1] = edge[1]
+        out.data[o + 2] = edge[2]
+        out.data[o + 3] = oid === emphasizeLabelId ? 230 : 180
+      }
+    }
   }
 
   ctx.putImageData(out, 0, 0)

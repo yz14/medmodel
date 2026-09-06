@@ -3,6 +3,7 @@ import { identityCamera, type Camera2D } from '@/features/viewer/core/camera'
 import type { InferenceResult } from '@/types/api'
 
 export type ViewerTool = 'scroll' | 'wwwc' | 'pan' | 'zoom' | 'length' | 'probe'
+export type ViewportLayout = '1x1' | '1x2' | '2x2'
 
 export interface LengthMeasurement {
   id: string
@@ -39,6 +40,11 @@ interface ViewerState {
   /** HU under cursor (probe). */
   probeHu: number | null
   probeImagePos: { x: number; y: number } | null
+  /** FE-3: selected / hovered finding for viewport linkage. */
+  highlightedFindingId: string | null
+  hoveredFindingId: string | null
+  viewportLayout: ViewportLayout
+  activeViewportId: number
   selectedModelId: string | null
   activeTaskId: string | null
   result: InferenceResult | null
@@ -65,6 +71,10 @@ interface ViewerState {
   setDraftLength: (p: { x: number; y: number } | null) => void
   clearMeasurements: () => void
   setProbe: (hu: number | null, pos: { x: number; y: number } | null) => void
+  setHighlightedFindingId: (id: string | null) => void
+  setHoveredFindingId: (id: string | null) => void
+  setViewportLayout: (layout: ViewportLayout) => void
+  setActiveViewportId: (id: number) => void
   setSelectedModelId: (id: string | null) => void
   setActiveTaskId: (id: string | null) => void
   setResult: (result: InferenceResult | null) => void
@@ -94,6 +104,10 @@ const defaults = {
   draftLength: null as { x: number; y: number } | null,
   probeHu: null as number | null,
   probeImagePos: null as { x: number; y: number } | null,
+  highlightedFindingId: null as string | null,
+  hoveredFindingId: null as string | null,
+  viewportLayout: '1x1' as ViewportLayout,
+  activeViewportId: 0,
   selectedModelId: null as string | null,
   activeTaskId: null as string | null,
   result: null as InferenceResult | null,
@@ -119,6 +133,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       draftLength: null,
       probeHu: null,
       probeImagePos: null,
+      highlightedFindingId: null,
+      hoveredFindingId: null,
       result: null,
       activeTaskId: null,
       enabledMaskIds: [],
@@ -161,12 +177,22 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setDraftLength: (p) => set({ draftLength: p }),
   clearMeasurements: () => set({ measurements: [], draftLength: null }),
   setProbe: (hu, pos) => set({ probeHu: hu, probeImagePos: pos }),
+  setHighlightedFindingId: (id) => set({ highlightedFindingId: id }),
+  setHoveredFindingId: (id) => set({ hoveredFindingId: id }),
+  setViewportLayout: (layout) =>
+    set((s) => ({
+      viewportLayout: layout,
+      activeViewportId: Math.min(s.activeViewportId, layoutCellCount(layout) - 1),
+    })),
+  setActiveViewportId: (id) => set({ activeViewportId: Math.max(0, id) }),
   setSelectedModelId: (id) => set({ selectedModelId: id }),
   setActiveTaskId: (id) => set({ activeTaskId: id }),
   setResult: (result) =>
     set({
       result,
       enabledMaskIds: result?.masks?.map((m) => m.label_id) ?? [],
+      highlightedFindingId: null,
+      hoveredFindingId: null,
     }),
   resetViewTransform: () =>
     set({
@@ -183,3 +209,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }),
   resetViewer: () => set({ ...defaults }),
 }))
+
+function layoutCellCount(layout: ViewportLayout): number {
+  if (layout === '1x2') return 2
+  if (layout === '2x2') return 4
+  return 1
+}

@@ -7,6 +7,7 @@ import { ViewportCorners, type ViewportMeta } from '@/features/viewer/ViewportCo
 import {
   cameraCssTransform,
   clampImagePoint,
+  detectionColor,
   fitCamera,
   buildViewerLayers,
   isLayerVisible,
@@ -29,12 +30,15 @@ export function StackViewport({
   meta,
   spacing,
   className,
+  interactive = true,
 }: {
   seriesUid: string
   sliceCount: number
   meta?: ViewportMeta
   spacing?: Array<number | null> | null
   className?: string
+  /** FE-3: only the active grid cell handles pointer / wheel. */
+  interactive?: boolean
 }) {
   const baseRef = useRef<HTMLCanvasElement>(null)
   const maskRef = useRef<HTMLCanvasElement>(null)
@@ -73,6 +77,27 @@ export function StackViewport({
   const measurements = useViewerStore((s) => s.measurements)
   const draftLength = useViewerStore((s) => s.draftLength)
   const probeHu = useViewerStore((s) => s.probeHu)
+  const highlightedFindingId = useViewerStore((s) => s.highlightedFindingId)
+  const hoveredFindingId = useViewerStore((s) => s.hoveredFindingId)
+
+  const emphasizeMaskId = useMemo(() => {
+    const id = highlightedFindingId
+    if (!id?.startsWith('mask-')) return null
+    const n = Number(id.slice(5))
+    return Number.isFinite(n) ? n : null
+  }, [highlightedFindingId])
+
+  const hoverMaskId = useMemo(() => {
+    const id = hoveredFindingId
+    if (!id?.startsWith('mask-')) return null
+    const n = Number(id.slice(5))
+    return Number.isFinite(n) ? n : null
+  }, [hoveredFindingId])
+
+  const emphasizeBoxId = highlightedFindingId?.startsWith('box-')
+    ? highlightedFindingId.slice(4)
+    : null
+  const hoverBoxId = hoveredFindingId?.startsWith('box-') ? hoveredFindingId.slice(4) : null
 
   const layers = useMemo(
     () =>
@@ -171,6 +196,8 @@ export function StackViewport({
         masks: result!.masks ?? [],
         enabledIds: enabledMaskIds,
         opacity: maskOpacity,
+        emphasizeLabelId: emphasizeMaskId,
+        hoverLabelId: hoverMaskId,
       })
       if (cancelled) return
     }
@@ -179,7 +206,17 @@ export function StackViewport({
     return () => {
       cancelled = true
     }
-  }, [frame, layerMaskOn, activeTaskId, result, enabledMaskIds, maskOpacity, sliceIndex])
+  }, [
+    frame,
+    layerMaskOn,
+    activeTaskId,
+    result,
+    enabledMaskIds,
+    maskOpacity,
+    sliceIndex,
+    emphasizeMaskId,
+    hoverMaskId,
+  ])
 
   const boxesOnSlice = useMemo(() => {
     if (!layerBoxesOn || !result?.boxes?.length) return [] as DetectionBox[]
@@ -221,10 +258,10 @@ export function StackViewport({
     }
   }, [frame, setCamera])
 
-  // Wheel: scroll / zoom-at-cursor (N-F3)
+  // Wheel: scroll / zoom-at-cursor (N-F3) — active viewport only (FE-3)
   useEffect(() => {
     const el = stageRef.current
-    if (!el) return
+    if (!el || !interactive) return
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
@@ -244,12 +281,12 @@ export function StackViewport({
 
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [sliceCount])
+  }, [sliceCount, interactive])
 
   // Pointer: deps only tool + frame presence (N-F5) — live values via getState()
   useEffect(() => {
     const el = stageRef.current
-    if (!el || !frame) return
+    if (!el || !frame || !interactive) return
 
     const imagePointFromEvent = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect()
@@ -393,10 +430,11 @@ export function StackViewport({
       el.removeEventListener('pointercancel', onUp)
       el.removeEventListener('contextmenu', onContext)
     }
-  }, [frame, tool])
+  }, [frame, tool, interactive])
 
-  // Keyboard: tools, slices, flip, reset (R9)
+  // Keyboard: tools, slices, flip, reset — active viewport only
   useEffect(() => {
+    if (!interactive) return
     const onKey = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
@@ -462,10 +500,11 @@ export function StackViewport({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [interactive])
 
-  const cursor =
-    tool === 'pan'
+  const cursor = !interactive
+    ? 'default'
+    : tool === 'pan'
       ? 'grab'
       : tool === 'wwwc'
         ? 'ns-resize'
@@ -525,26 +564,33 @@ export function StackViewport({
             height={frame.height}
             viewBox={`0 0 ${frame.width} ${frame.height}`}
           >
-            {boxesOnSlice.map((box) => {
+            {boxesOnSlice.map((box, bi) => {
               const bbox = box.bbox
               if (!bbox || bbox.length < 4) return null
               const [x, y, w, h] = bbox
+              const color = detectionColor(box.label, bi)
+              const selected = emphasizeBoxId === box.id
+              const hovered = hoverBoxId === box.id
+              const dimmed = Boolean(emphasizeBoxId && !selected)
+              const strokeW =
+                Math.max(frame.width / 256, 1.5) * (selected ? 2.2 : hovered ? 1.6 : 1)
               return (
-                <g key={box.id}>
+                <g key={box.id} opacity={dimmed ? 0.35 : 1}>
                   <rect
                     x={x}
                     y={y}
                     width={w}
                     height={h}
-                    fill="none"
-                    stroke="#F59E0B"
-                    strokeWidth={Math.max(frame.width / 256, 1.5)}
+                    fill={selected || hovered ? `${color}22` : 'none'}
+                    stroke={color}
+                    strokeWidth={strokeW}
                   />
                   <text
                     x={x}
                     y={Math.max(12, y - 4)}
-                    fill="#F59E0B"
+                    fill={color}
                     fontSize={Math.max(12, frame.width / 40)}
+                    fontWeight={selected ? 600 : 400}
                   >
                     {box.label} {(box.confidence * 100).toFixed(0)}%
                   </text>

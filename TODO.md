@@ -54,14 +54,15 @@
 
 > 壳子合格，但页面更像后台而不够像医疗产品；**阅片器是全站最重要也是最弱的一页，应整体重做而非继续零敲碎打**。  
 > 标杆：OHIF / Weasis / Lunit / Aidoc / Grafana / shadcn / Carbon DataTable 等。  
-> **未完成项以本节 FE-3～FE-5 为准**（FE-1 / FE-2 已完成）。
+> **未完成项以本节 FE-4～FE-5 为准**（FE-1 / FE-2 / FE-3 已完成）。
 
 ## 一、总体结论
 
 - **保留**：路由/lazy、TanStack Query + Zustand、OpenAPI 类型、Design Token、深色主色、loading/empty/error、Radix Dialog/Tabs、Findings 列表与阶段甘特方向。
 - **FE-1 已完成**：shadcn 基座、字号下限、Badge Status/Tag、`lib/i18n/terms.ts`、Suspense→Outlet、Sonner Toast、阅片强制深色、原生 select/range 清零、Spike 入口收敛到 Settings。
-- **FE-2 已完成**：Camera fit 策略（面板变宽近 fit 重适配、用户缩放不改 fitScale）、`core/layers`、工具条 Tools/View/Layers 三组 + 层导航、App 侧栏阅片自动图标栏、反色图标修正。
-- **仍需重做**：① 多视口 / HP ② AI 面板 Tabs 化与叠加增强 ③ Dashboard 真实运营指标 ④ 统一 DataTable。
+- **FE-2 已完成**：Camera fit 策略、`core/layers`、工具条 Tools/View/Layers、App 侧栏阅片自动图标栏。
+- **FE-3 已完成**：ViewportGrid 1×1/1×2/2×2 + 激活边框；AI Tabs（分析｜检出｜图层｜报告）+ Resizable；结果自动跳代表层；hover/选中 outline；检测色板。
+- **仍需重做**：① Dashboard 真实运营指标 ② 统一 DataTable ③ 模型卡指标按类型 / Settings 补齐。
 
 ## 二、仍开放的主要缺口（摘要）
 
@@ -97,10 +98,10 @@
 | 领域 | 现状 |
 |---|---|
 | 壳 | ☑ 侧栏 ☑ 阅片自动收栏 ☐ 搜索/铃/用户菜单 |
-| 阅片布局 | ☑ 折叠 ☐ 多视口 ☐ 拖宽面板 ☐ HP |
-| 工具条 | ☑ 互斥/预设·fit·探针·比例尺 ☑ Tooltip ☑ Tools/View/Layers 三组 ☐ 完整测量组 ☐ 窄屏收纳 |
-| 视口 | ☑ 四角·fit·比例尺·相机 ☑ 缩放不漂·近 fit 重适配 ☐ 方向标 ☐ 激活边框 |
-| AI 结果 | ☑ 列表+跳层 ☑ 接受/拒绝 ☐ Tabs 面板 ☐ hover 联动 ☐ outline ☐ 自动跳代表层 |
+| 阅片布局 | ☑ 折叠 ☑ 多视口 1×1/1×2/2×2 ☑ 拖宽 AI 面板 ☐ 高级 HP |
+| 工具条 | ☑ 互斥/预设·fit·探针·比例尺 ☑ Tooltip ☑ Tools/View/Layers ☑ 布局切换 ☐ 完整测量组 ☐ 窄屏收纳 |
+| 视口 | ☑ 四角·fit·比例尺·相机 ☑ 缩放不漂 ☑ 激活边框 ☐ 方向标 |
+| AI 结果 | ☑ 列表+跳层 ☑ 接受/拒绝 ☑ Tabs 面板 ☑ hover 联动 ☑ outline ☑ 自动跳代表层 |
 | 数据表 | ☑ 分页 ☐ 完整 DataTable 能力 |
 | 任务 | ☑ Gantt·Tabs·部分筛选 ☐ 批量 ☐ 日志增强 ☐ 结构化结果首屏 |
 | 模型 | ☑ Tabs 骨架 ☐ 内容与指标按类型 |
@@ -119,9 +120,10 @@
 - Layer：`core/layers.ts`（image/mask/overlay/annotation）；工具条图层开关。
 - 工具条三组 Tools | View | Layers + 层导航；App 侧栏阅片自动折叠。
 
-### 4.3 FE-3 阅片 B + AI 面板
-- `ViewportGrid` + HP；工具条窄屏收纳；ROI/角度等。
-- AI：自动跳代表层、选中高亮、outline/fill、检测色板；面板 Tabs + 历史结果 + Resizable。
+### 4.3 FE-3 阅片 B + AI —— ✅ 已完成
+- ViewportGrid：1×1 / 1×2 / 2×2，激活视口可交互，共享序列/叠加。
+- AI Tabs：分析｜检出｜图层｜报告；右侧 Resizable。
+- 结果落地自动跳代表层 + 开掩膜；hover/选中 outline；检测色板。
 
 ### 4.4～4.6 FE-4/FE-5 表格、总览、模型
 - 统一 `DataTable`；数据中心 / 任务中心 / 详情结构化。
@@ -133,14 +135,14 @@
 |---|---|---|---|
 | **FE-1 基座** | 4.1 | 无原生 select/range；无 10/11px；Esc 关浮层；mutation 有 Toast | ✅ |
 | **FE-2 阅片 A** | 相机/图层 + fit + 工具条 + 四角/比例尺 + 侧栏自动折叠 | 三档宽度影像占短边 ≥90%；缩放不漂 | ✅ |
-| **FE-3 阅片 B + AI** | 网格/HP + 叠加增强 + 面板 Tabs | lung_seg 后约 1s 可见掩膜并到代表层；hover/接受拒绝进报告 | 下一轮 |
-| **FE-4 表格与任务** | DataTable + 数据/任务页 | URL 可复现筛选；批量确认；详情首屏无原始 JSON | 待做 |
+| **FE-3 阅片 B + AI** | 网格/HP + 叠加增强 + 面板 Tabs | lung_seg 后可见掩膜并到代表层；hover/接受拒绝进报告 | ✅ |
+| **FE-4 表格与任务** | DataTable + 数据/任务页 | URL 可复现筛选；批量确认；详情首屏无原始 JSON | 下一轮 |
 | **FE-5 总览与模型** | Dashboard + 模型卡 + Settings | 无虚构趋势；指标按类型；约束非 JSON.stringify | 待做 |
 
-> 后端最小配合（FE-3/FE-5 可能需要）：`/stats/overview` 补 `daily_tasks` 与 per-model 统计；`ModelSpec.metrics` 按 task_type；`/studies` 补 `last_task`；掩膜 finding 勿用 `dice` 当置信度。
+> 后端最小配合（FE-5 可能需要）：`/stats/overview` 补 `daily_tasks` 与 per-model 统计；`ModelSpec.metrics` 按 task_type；`/studies` 补 `last_task`；掩膜 finding 勿用 `dice` 当置信度。
 
 ## 六、优先级
-1. **下一轮 FE-3**（多视口/HP + AI 面板 Tabs 与叠加增强）。
+1. **下一轮 FE-4**（统一 DataTable + 数据/任务页）。
 2. 一切「看得见的假/错」优先于纯视觉打磨。
 
 ---

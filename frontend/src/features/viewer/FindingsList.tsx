@@ -3,6 +3,7 @@ import { Check, Pencil, X } from 'lucide-react'
 import { formatPercent } from '@/lib/format'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
+import { detectionColor } from '@/features/viewer/core'
 import { cn } from '@/lib/utils'
 import type { InferenceResult } from '@/types/api'
 
@@ -61,6 +62,7 @@ export function buildFindings(result: InferenceResult | null | undefined): Findi
       label: b.label,
       score: b.confidence,
       scoreKind: 'confidence',
+      color: detectionColor(b.label, items.length),
       sliceIndex: b.slice_index,
       meta: [diam, slice].filter(Boolean).join(' · '),
     })
@@ -92,6 +94,8 @@ export function FindingsList({
   onToggleMask,
   onJump,
   highlightedId,
+  hoveredId,
+  onHover,
   selectedIds,
   onToggleSelect,
   onSelectAll,
@@ -103,6 +107,8 @@ export function FindingsList({
   onToggleMask: (labelId: number) => void
   onJump: (finding: Finding) => void
   highlightedId?: string | null
+  hoveredId?: string | null
+  onHover?: (id: string | null) => void
   selectedIds?: string[]
   onToggleSelect?: (id: string) => void
   onSelectAll?: (ids: string[]) => void
@@ -135,6 +141,7 @@ export function FindingsList({
       </div>
       {findings.map((f) => {
         const active = highlightedId === f.id
+        const hovered = hoveredId === f.id
         const maskOn =
           f.kind === 'mask' && f.maskLabelId != null
             ? enabledMaskIds.includes(f.maskLabelId)
@@ -146,11 +153,13 @@ export function FindingsList({
             key={f.id}
             className={cn(
               'rounded-lg border px-2 py-2 transition-colors',
-              active ? 'border-brand bg-brand/10' : 'border-border',
+              active ? 'border-brand bg-brand/10' : hovered ? 'border-brand/50 bg-surface-2' : 'border-border',
               review === 'rejected' && 'opacity-60',
             )}
             data-testid={`finding-${f.kind}`}
             data-review={review}
+            onMouseEnter={() => onHover?.(f.id)}
+            onMouseLeave={() => onHover?.(null)}
           >
             <div className="flex items-center gap-2">
               {selectable && (

@@ -1,15 +1,17 @@
-import { type ReactNode } from 'react'
 import {
   BoxSelect,
   Contrast,
   Crosshair,
   FlipHorizontal2,
   FlipVertical2,
+  Grid2x2,
   Hand,
+  LayoutGrid,
   Layers,
   Maximize2,
   MoveHorizontal,
   Ratio,
+  RectangleVertical,
   Ruler,
   RotateCcw,
   Rows3,
@@ -18,6 +20,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
+import { type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -29,7 +32,7 @@ import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { WINDOW_PRESETS, relativeZoom, zoomAt } from '@/features/viewer/core'
-import { useViewerStore, type ViewerTool } from '@/stores/viewer-store'
+import { useViewerStore, type ViewerTool, type ViewportLayout } from '@/stores/viewer-store'
 import { cn } from '@/lib/utils'
 
 const TOOLS: Array<{ id: ViewerTool; label: string; icon: typeof Hand; hint: string }> = [
@@ -104,6 +107,8 @@ export function ViewerToolbar({
   const setShowMasks = useViewerStore((s) => s.setShowMasks)
   const setShowBoxes = useViewerStore((s) => s.setShowBoxes)
   const setShowAnnotations = useViewerStore((s) => s.setShowAnnotations)
+  const viewportLayout = useViewerStore((s) => s.viewportLayout)
+  const setViewportLayout = useViewerStore((s) => s.setViewportLayout)
 
   const zoomPct = relativeZoom(camera, fitScale || camera.scale)
 
@@ -260,6 +265,36 @@ export function ViewerToolbar({
         >
           <RotateCcw className="h-4 w-4" />
         </ToolBtn>
+      </div>
+
+      <Separator orientation="vertical" className="mx-0.5 hidden h-6 lg:block" />
+
+      {/* Hanging protocol / layout */}
+      <div
+        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
+        role="group"
+        aria-label="视口布局"
+      >
+        {(
+          [
+            { id: '1x1' as ViewportLayout, label: '单视口', icon: RectangleVertical },
+            { id: '1x2' as ViewportLayout, label: '1×2', icon: LayoutGrid },
+            { id: '2x2' as ViewportLayout, label: '2×2', icon: Grid2x2 },
+          ] as const
+        ).map((item) => {
+          const Icon = item.icon
+          return (
+            <ToolBtn
+              key={item.id}
+              label={item.label}
+              hint={`挂片布局 ${item.label}`}
+              active={viewportLayout === item.id}
+              onClick={() => setViewportLayout(item.id)}
+            >
+              <Icon className="h-4 w-4" />
+            </ToolBtn>
+          )
+        })}
       </div>
 
       <Separator orientation="vertical" className="mx-0.5 hidden h-6 lg:block" />

@@ -6,9 +6,14 @@ import { api } from '@/lib/api'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
 import { SeriesList } from '@/features/viewer/SeriesList'
-import { StackViewport } from '@/features/viewer/StackViewport'
 import { ViewerToolbar } from '@/features/viewer/ViewerToolbar'
+import { ViewportGrid } from '@/features/viewer/ViewportGrid'
 import { AiPanel } from '@/features/viewer/AiPanel'
 import { useViewerStore } from '@/stores/viewer-store'
 import { cn } from '@/lib/utils'
@@ -83,7 +88,6 @@ export function ViewerPage() {
     enabled: !!seriesUid,
   })
 
-  // Prefer series.num_instances before instances API settles (Findings clamp)
   const seriesHintCount =
     studyQuery.data?.series?.find((s) => s.series_uid === seriesUid)?.num_instances ??
     studyQuery.data?.series?.[0]?.num_instances ??
@@ -116,7 +120,10 @@ export function ViewerPage() {
                 <RefreshCw className="h-4 w-4" />
                 重试
               </Button>
-              <Link to="/data" className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm text-white">
+              <Link
+                to="/data"
+                className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm text-white"
+              >
                 返回数据中心
               </Link>
             </div>
@@ -170,52 +177,69 @@ export function ViewerPage() {
           <PanelRight className="h-4 w-4" />
         </Button>
       </div>
-      <div
-        className={cn(
-          'grid min-h-0 flex-1',
-          leftOpen && rightOpen && 'grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_320px]',
-          leftOpen && !rightOpen && 'grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)]',
-          !leftOpen && rightOpen && 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]',
-          !leftOpen && !rightOpen && 'grid-cols-1',
-        )}
-      >
+
+      <div className="flex min-h-0 flex-1">
         {leftOpen && (
-          <SeriesList
-            series={study.series ?? []}
-            activeUid={seriesUid}
-            onSelect={(uid) => setSeriesUid(uid)}
-          />
+          <div className="hidden w-[200px] shrink-0 lg:block">
+            <SeriesList
+              series={study.series ?? []}
+              activeUid={seriesUid}
+              onSelect={(uid) => setSeriesUid(uid)}
+            />
+          </div>
         )}
-        <div className="relative flex min-h-0 min-w-0 flex-col">
-          <ViewerToolbar
-            sliceCount={sliceCount}
-            patientLabel={activeSeries ? `${activeSeries.modality || 'OT'} · ${activeSeries.description || activeSeries.series_uid.slice(-12)}` : undefined}
-          />
-          {seriesUid && sliceCount > 0 ? (
-            <StackViewport
-              seriesUid={seriesUid}
-              sliceCount={sliceCount}
-              meta={viewportMeta}
-              spacing={activeSeries?.spacing}
-              className="flex-1"
-            />
-          ) : (
-            <div className="flex flex-1 items-center justify-center bg-black text-sm text-white/60">
-              {instancesQuery.isLoading ? '加载序列…' : '请选择序列'}
+
+        <ResizablePanelGroup direction="horizontal" className="min-h-0 min-w-0 flex-1">
+          <ResizablePanel defaultSize={rightOpen ? 72 : 100} minSize={40} order={1}>
+            <div className="relative flex h-full min-h-0 min-w-0 flex-col">
+              <ViewerToolbar
+                sliceCount={sliceCount}
+                patientLabel={
+                  activeSeries
+                    ? `${activeSeries.modality || 'OT'} · ${activeSeries.description || activeSeries.series_uid.slice(-12)}`
+                    : undefined
+                }
+              />
+              {seriesUid && sliceCount > 0 ? (
+                <ViewportGrid
+                  seriesUid={seriesUid}
+                  sliceCount={sliceCount}
+                  meta={viewportMeta}
+                  spacing={activeSeries?.spacing}
+                  className="flex-1"
+                />
+              ) : (
+                <div className="flex flex-1 items-center justify-center bg-black text-sm text-white/60">
+                  {instancesQuery.isLoading ? '加载序列…' : '请选择序列'}
+                </div>
+              )}
             </div>
+          </ResizablePanel>
+
+          {rightOpen && (
+            <>
+              <ResizableHandle withHandle className={cn('bg-border')} />
+              <ResizablePanel
+                defaultSize={28}
+                minSize={18}
+                maxSize={42}
+                order={2}
+                className="min-w-[240px]"
+              >
+                {seriesUid ? (
+                  <AiPanel
+                    seriesUid={seriesUid}
+                    modality={activeSeries?.modality ?? study.modality}
+                    bodyPart={activeSeries?.body_part ?? study.body_part}
+                    numInstances={sliceCount || activeSeries?.num_instances}
+                  />
+                ) : (
+                  <div className="h-full border-l border-border bg-surface-1" />
+                )}
+              </ResizablePanel>
+            </>
           )}
-        </div>
-        {rightOpen &&
-          (seriesUid ? (
-            <AiPanel
-              seriesUid={seriesUid}
-              modality={activeSeries?.modality ?? study.modality}
-              bodyPart={activeSeries?.body_part ?? study.body_part}
-              numInstances={sliceCount || activeSeries?.num_instances}
-            />
-          ) : (
-            <div className="border-l border-border bg-surface-1" />
-          ))}
+        </ResizablePanelGroup>
       </div>
     </div>
   )
