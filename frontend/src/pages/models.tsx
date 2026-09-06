@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/sonner'
 import { ModelCard } from '@/features/models/ModelCard'
+import { errorMessage } from '@/lib/errors'
 
 export function ModelsPage() {
   const queryClient = useQueryClient()
@@ -23,7 +24,7 @@ export function ModelsPage() {
       void queryClient.invalidateQueries({ queryKey: ['overview'] })
       toast.success(vars.enabled ? '模型已启用' : '模型已停用')
     },
-    onError: (err) => toast.error((err as Error).message || '更新失败'),
+    onError: (err) => toast.error(errorMessage(err, '更新失败')),
   })
 
   return (

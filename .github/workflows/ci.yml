@@ -82,16 +82,9 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-      - name: Start API
-        working-directory: backend
-        run: |
-          mkdir -p ../data ../storage
-          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8000/api/v1/health/live && exit 0
-            sleep 1
-          done
-          exit 1
       - name: Smoke e2e
         working-directory: frontend
+        env:
+          VOXFLOW_TASK_FAKE_LATENCY_SCALE: "0.05"
+          VOXFLOW_TASK_MAX_CONCURRENCY: "2"
         run: npx playwright test e2e/smoke.spec.ts --reporter=line

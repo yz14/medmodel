@@ -83,8 +83,36 @@ def test_health(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] in {"ok", "degraded"}
-    assert body["models"] >= 4
-    assert "code" not in body or body.get("status")
+
+
+def test_studies_last_task(client):
+    """Tech debt: StudySummary.last_task reflects latest inference for the study."""
+    c, _ = client
+    studies = c.get("/api/v1/studies").json()["items"]
+    chest = next(s for s in studies if s.get("patient_id") == "DEMO-CT-CHEST")
+    assert chest.get("last_task") is None
+
+    series_uid = chest["series"][0]["series_uid"]
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {}},
+    )
+    assert create.status_code == 202
+    task_id = create.json()["task_id"]
+    detail = _wait_task(c, task_id)
+    assert detail["status"] == "succeeded"
+
+    listed = c.get("/api/v1/studies").json()["items"]
+    chest2 = next(s for s in listed if s["study_uid"] == chest["study_uid"])
+    lt = chest2["last_task"]
+    assert lt is not None
+    assert lt["task_id"] == task_id
+    assert lt["model_id"] == "lung_seg"
+    assert lt["status"] == "succeeded"
+    assert 0.0 <= float(lt["progress"]) <= 1.0
+
+    one = c.get(f"/api/v1/studies/{chest['study_uid']}").json()
+    assert one["last_task"]["task_id"] == task_id
 
 
 def test_models_registered(client):

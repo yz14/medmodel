@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, RotateCcw, XCircle, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { formatDateTime, formatMs, formatPercent } from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -48,7 +49,7 @@ export function TaskDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['task', taskId] })
       toast.success('已取消任务')
     },
-    onError: (err) => toast.error((err as Error).message || '取消失败'),
+    onError: (err) => toast.error(errorMessage(err, '取消失败')),
   })
 
   const retryMutation = useMutation({
@@ -58,7 +59,7 @@ export function TaskDetailPage() {
       toast.success('已重新提交任务')
       navigate(`/tasks/${res.task_id}`)
     },
-    onError: (err) => toast.error((err as Error).message || '重试失败'),
+    onError: (err) => toast.error(errorMessage(err, '重试失败')),
   })
 
   if (task.isLoading) {
@@ -216,9 +217,7 @@ export function TaskDetailPage() {
               <CardTitle>实时日志</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-border bg-surface-0 p-3">
-                <TaskLogsTimeline logs={t.logs} />
-              </div>
+              <TaskLogsTimeline logs={t.logs} />
             </CardContent>
           </Card>
         </TabsContent>

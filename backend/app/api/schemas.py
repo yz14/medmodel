@@ -58,6 +58,17 @@ class SeriesSummary(BaseModel):
     spacing: list[float | None] | None = None
     thumbnail_url: str | None = None
     created_at: str | None = None
+class StudyLastTask(BaseModel):
+    """Latest inference task for a study (compact; for data-table AI status)."""
+
+    task_id: str
+    model_id: str
+    status: TaskStatusLiteral | str
+    progress: float = 0.0
+    message: str | None = None
+    error_message: str | None = None
+    created_at: str | None = None
+    finished_at: str | None = None
 class StudySummary(BaseModel):
 
     study_uid: str
@@ -74,6 +85,7 @@ class StudySummary(BaseModel):
     num_instances: int = 0
     created_at: str | None = None
     series: list[SeriesSummary] | None = None
+    last_task: StudyLastTask | None = None
 class InstanceItem(BaseModel):
 
     sop_uid: str

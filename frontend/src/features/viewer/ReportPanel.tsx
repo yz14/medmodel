@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { toast } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import type { ReportResponse } from '@/lib/api'
 import type { FindingReviewStatus } from '@/features/viewer/FindingsList'
 
@@ -44,10 +45,10 @@ export function ReportPanel({
       setLast(res)
       toast.success('报告已生成')
     },
-    onError: (err) => toast.error((err as Error).message || '生成报告失败'),
+    onError: (err) => toast.error(errorMessage(err, '生成报告失败')),
   })
 
-  const canRun = findingIds.length > 0 && !mutation.isPending
+  const canRun = !mutation.isPending
   const artifactLinks = useMemo(() => last?.artifacts ?? [], [last])
 
   return (
@@ -90,15 +91,17 @@ export function ReportPanel({
         size="sm"
         data-testid="generate-report"
         disabled={!canRun}
-        onClick={() => mutation.mutate()}
+        onClick={() => {
+          if (findingIds.length === 0) {
+            toast.error('请先勾选至少一个检出')
+            return
+          }
+          mutation.mutate()
+        }}
       >
         {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
         生成报告（{findingIds.length}）
       </Button>
-
-      {mutation.isError && (
-        <p className="text-xs text-danger">{(mutation.error as Error).message || '生成失败'}</p>
-      )}
 
       {last && (
         <div className="space-y-2">

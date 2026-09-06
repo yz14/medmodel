@@ -12,6 +12,9 @@ import type {
   TaskCreateResponse,
   TaskSummary,
 } from '@/types/api'
+import { ApiError, parseErrorBody } from '@/lib/errors'
+
+export { ApiError } from '@/lib/errors'
 
 export type LiveHealthResponse = { status: 'ok'; version: string }
 export type ReadyHealthResponse = {
@@ -28,47 +31,14 @@ export type ModelReadyResponse = {
   message: string
 }
 
-export class ApiError extends Error {
-  status: number
-  code?: string
-  details?: unknown
-
-  constructor(message: string, status: number, code?: string, details?: unknown) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.details = details
-  }
-}
-
 async function parseError(res: Response): Promise<ApiError> {
-  let message = res.statusText || '请求失败'
-  let code: string | undefined
-  let details: unknown
+  let body: unknown
   try {
-    const body = await res.json()
-    if (body?.message && body?.code) {
-      message = body.message
-      code = body.code
-      details = body.details
-    } else {
-      const detail = body?.detail
-      if (typeof detail === 'string') {
-        message = detail
-      } else if (detail && typeof detail === 'object') {
-        message = detail.message ?? message
-        code = detail.code
-        details = detail.details
-      } else if (body?.message) {
-        message = body.message
-        code = body.code
-      }
-    }
+    body = await res.json()
   } catch {
-    // ignore
+    body = undefined
   }
-  return new ApiError(message, res.status, code, details)
+  return parseErrorBody(body, res.status, res.statusText)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -134,15 +104,18 @@ export const api = {
           resolve(xhr.response as StudyUploadResponse)
           return
         }
-        const detail =
-          (xhr.response && (xhr.response.detail || xhr.response.message)) ||
-          xhr.statusText ||
-          '上传失败'
-        reject(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)))
+        reject(parseErrorBody(xhr.response, xhr.status, xhr.statusText || '上传失败'))
       }
-      xhr.onerror = () => reject(new Error('网络错误'))
-      xhr.onabort = () => reject(new Error('已取消'))
-      opts.signal?.addEventListener('abort', () => xhr.abort())
+      xhr.onerror = () => reject(new ApiError('网络错误', 0))
+      xhr.onabort = () => reject(new ApiError('已取消', 0, 'UPLOAD_ABORTED'))
+      const onAbort = () => xhr.abort()
+      if (opts.signal) {
+        if (opts.signal.aborted) {
+          xhr.abort()
+          return
+        }
+        opts.signal.addEventListener('abort', onAbort, { once: true })
+      }
       xhr.send(form)
     })
   },

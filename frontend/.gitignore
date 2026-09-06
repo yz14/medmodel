@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Playwright generated fixtures / artifacts
+e2e/fixtures/*
+!e2e/fixtures/.gitkeep
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

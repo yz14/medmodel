@@ -2498,6 +2498,93 @@
         ],
         "title": "SeriesSummary"
       },
+      "StudyLastTask": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "canceled"
+                ]
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Status"
+          },
+          "progress": {
+            "type": "number",
+            "title": "Progress",
+            "default": 0.0
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "model_id",
+          "status"
+        ],
+        "title": "StudyLastTask",
+        "description": "Latest inference task for a study (compact; for data-table AI status)."
+      },
       "StudySummary": {
         "properties": {
           "study_uid": {
@@ -2637,6 +2724,16 @@
               }
             ],
             "title": "Series"
+          },
+          "last_task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyLastTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

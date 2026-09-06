@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/components/ui/sonner'
+import { errorMessage } from '@/lib/errors'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +41,7 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       toast.success('已取消任务')
     },
-    onError: (err) => toast.error((err as Error).message || '取消失败'),
+    onError: (err) => toast.error(errorMessage(err, '取消失败')),
   })
 
   const retryMutation = useMutation({
@@ -49,7 +50,7 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       toast.success('已重新提交任务')
     },
-    onError: (err) => toast.error((err as Error).message || '重试失败'),
+    onError: (err) => toast.error(errorMessage(err, '重试失败')),
   })
 
   const selectedIds = useMemo(

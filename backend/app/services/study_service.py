@@ -17,7 +17,7 @@ from app.imaging.dicom_io import (
     write_thumbnail_from_volume,
 )
 from app.infra.logging import get_logger
-from app.infra.orm import InstanceRow, SeriesRow, StudyRow
+from app.infra.orm import InstanceRow, SeriesRow, StudyRow, TaskRow
 from app.infra.storage import StorageService
 from app.infra.timeutil import utc_iso
 
@@ -352,7 +352,43 @@ class StudyService:
             raise RuntimeError("demo seed failed")
         return primary
 
-    def study_to_dict(self, study: StudyRow, include_series: bool = True) -> dict[str, Any]:
+    def last_tasks_for_studies(self, study_uids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return the latest task (by created_at) for each study_uid — one query, no N+1."""
+        if not study_uids:
+            return {}
+        rows = self.db.scalars(
+            select(TaskRow)
+            .where(TaskRow.study_uid.in_(study_uids))
+            .order_by(TaskRow.created_at.desc())
+        ).all()
+        out: dict[str, dict[str, Any]] = {}
+        for task in rows:
+            uid = task.study_uid
+            if not uid or uid in out:
+                continue
+            out[uid] = self.last_task_to_dict(task)
+        return out
+
+    @staticmethod
+    def last_task_to_dict(task: TaskRow) -> dict[str, Any]:
+        return {
+            "task_id": task.task_id,
+            "model_id": task.model_id,
+            "status": task.status,
+            "progress": float(task.progress or 0.0),
+            "message": task.message,
+            "error_message": task.error_message,
+            "created_at": utc_iso(task.created_at),
+            "finished_at": utc_iso(task.finished_at),
+        }
+
+    def study_to_dict(
+        self,
+        study: StudyRow,
+        include_series: bool = True,
+        *,
+        last_task: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         data: dict[str, Any] = {
             "study_uid": study.study_uid,
             "patient_id": study.patient_id,
@@ -367,10 +403,23 @@ class StudyService:
             "num_series": study.num_series,
             "num_instances": study.num_instances,
             "created_at": utc_iso(study.created_at),
+            "last_task": last_task,
         }
         if include_series:
             data["series"] = [self.series_to_dict(s) for s in study.series]
         return data
+
+    def studies_to_dicts(
+        self,
+        studies: list[StudyRow],
+        *,
+        include_series: bool = True,
+    ) -> list[dict[str, Any]]:
+        last_map = self.last_tasks_for_studies([s.study_uid for s in studies])
+        return [
+            self.study_to_dict(s, include_series=include_series, last_task=last_map.get(s.study_uid))
+            for s in studies
+        ]
 
     def series_to_dict(self, series: SeriesRow) -> dict[str, Any]:
         return {

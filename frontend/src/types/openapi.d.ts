@@ -907,6 +907,31 @@ export interface components {
             /** Created At */
             created_at?: string | null;
         };
+        /**
+         * StudyLastTask
+         * @description Latest inference task for a study (compact; for data-table AI status).
+         */
+        StudyLastTask: {
+            /** Task Id */
+            task_id: string;
+            /** Model Id */
+            model_id: string;
+            /** Status */
+            status: ("queued" | "running" | "succeeded" | "failed" | "canceled") | string;
+            /**
+             * Progress
+             * @default 0
+             */
+            progress: number;
+            /** Message */
+            message?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+        };
         /** StudySummary */
         StudySummary: {
             /** Study Uid */
@@ -943,6 +968,7 @@ export interface components {
             created_at?: string | null;
             /** Series */
             series?: components["schemas"]["SeriesSummary"][] | null;
+            last_task?: components["schemas"]["StudyLastTask"] | null;
         };
         /** StudyUploadResponse */
         StudyUploadResponse: {

@@ -1,16 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { subscribeSse } from '@/lib/sse'
 import type { TaskSummary } from '@/types/api'
 
+const LOG_REFRESH_DEBOUNCE_MS = 1500
+
 /**
  * SSE as primary live channel for task progress (B-8 / N-F8).
  * Patches React Query cache; exposes reactive `connected` so pollers can back off.
+ * Debounced invalidate pulls fresh logs for the timeline while the task runs.
  */
 export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
   const queryClient = useQueryClient()
   const [connected, setConnected] = useState(false)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!taskId || !enabled) {
@@ -24,8 +28,15 @@ export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
       return
     }
 
+    const scheduleLogRefresh = () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      }, LOG_REFRESH_DEBOUNCE_MS)
+    }
+
     setConnected(false)
-    return subscribeSse(api.taskEventsUrl(taskId), {
+    const unsubscribe = subscribeSse(api.taskEventsUrl(taskId), {
       onOpen: () => {
         setConnected(true)
       },
@@ -53,6 +64,9 @@ export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
               message: typeof data.message === 'string' ? data.message : base.message,
             }
           })
+          if (type === 'progress' || type === 'running' || type === 'snapshot') {
+            scheduleLogRefresh()
+          }
         }
         if (type === 'succeeded' || type === 'failed' || type === 'canceled') {
           queryClient.setQueryData<TaskSummary>(['task', taskId], (old) => {
@@ -75,6 +89,11 @@ export function useTaskSSE(taskId: string | null | undefined, enabled = true) {
         setConnected(false)
       },
     })
+
+    return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+      unsubscribe()
+    }
   }, [taskId, enabled, queryClient])
 
   return { connected }

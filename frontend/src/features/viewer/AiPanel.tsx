@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Play, Square } from 'lucide-react'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { formatMs } from '@/lib/format'
 import { toast } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
@@ -154,7 +155,7 @@ export function AiPanel({
       toast.success('已创建推理任务')
     },
     onError: (err) => {
-      toast.error((err as Error).message || '创建任务失败')
+      toast.error(errorMessage(err, '创建任务失败'))
     },
   })
 
@@ -165,7 +166,7 @@ export function AiPanel({
       toast.success('已取消任务')
     },
     onError: (err) => {
-      toast.error((err as Error).message || '取消失败')
+      toast.error(errorMessage(err, '取消失败'))
     },
   })
 
@@ -262,7 +263,7 @@ export function AiPanel({
             <TabsTrigger value="findings" className="px-1.5 text-[12px]">
               检出
             </TabsTrigger>
-            <TabsTrigger value="layers" className="px-1.5 text-[12px]">
+            <TabsTrigger value="layers" className="px-1.5 text-[12px]" data-testid="ai-tab-layers">
               图层
             </TabsTrigger>
             <TabsTrigger value="report" className="px-1.5 text-[12px]">
@@ -316,10 +317,22 @@ export function AiPanel({
               <Button
                 className="flex-1"
                 data-testid="run-inference"
-                disabled={
-                  !selected || !selectedCompat.ok || !paramsValid || runMutation.isPending || busy
-                }
-                onClick={() => runMutation.mutate()}
+                disabled={runMutation.isPending || busy}
+                onClick={() => {
+                  if (!selected) {
+                    toast.error('请先选择模型')
+                    return
+                  }
+                  if (!selectedCompat.ok) {
+                    toast.error(selectedCompat.reason || '当前序列与模型不兼容')
+                    return
+                  }
+                  if (!paramsValid) {
+                    toast.error('请修正模型参数后再运行')
+                    return
+                  }
+                  runMutation.mutate()
+                }}
               >
                 {runMutation.isPending || busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -338,12 +351,6 @@ export function AiPanel({
                 </Button>
               )}
             </div>
-
-            {runMutation.isError && (
-              <p className="text-xs text-danger">
-                {(runMutation.error as Error).message || '创建任务失败'}
-              </p>
-            )}
 
             {task && (
               <div
@@ -406,6 +413,7 @@ export function AiPanel({
                 checked={showMasks}
                 onCheckedChange={setShowMasks}
                 aria-label="显示分割掩膜"
+                data-testid="show-masks"
               />
             </div>
             <div className="flex items-center justify-between">

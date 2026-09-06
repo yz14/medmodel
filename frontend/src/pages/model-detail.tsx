@@ -21,6 +21,7 @@ import {
   taskTypeLabel,
 } from '@/features/models/metrics'
 import { asJsonSchema } from '@/types/api'
+import { errorMessage } from '@/lib/errors'
 
 export function ModelDetailPage() {
   const { modelId = '' } = useParams()
@@ -60,7 +61,7 @@ export function ModelDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['model-ready', modelId] })
       toast.success('模型配置已保存')
     },
-    onError: (err) => toast.error((err as Error).message || '保存失败'),
+    onError: (err) => toast.error(errorMessage(err, '保存失败')),
   })
 
   if (model.isLoading) {
@@ -106,8 +107,14 @@ export function ModelDetailPage() {
               返回
             </Link>
             <Button
-              onClick={() => patchMutation.mutate()}
-              disabled={patchMutation.isPending || !paramsValid}
+              onClick={() => {
+                if (!paramsValid) {
+                  toast.error('请修正模型参数后再保存')
+                  return
+                }
+                patchMutation.mutate()
+              }}
+              disabled={patchMutation.isPending}
             >
               <Save className="h-4 w-4" />
               保存
@@ -307,10 +314,6 @@ export function ModelDetailPage() {
                 onChange={setParams}
                 onValidityChange={setParamsValid}
               />
-              {patchMutation.isSuccess && <p className="text-xs text-success">已保存</p>}
-              {patchMutation.isError && (
-                <p className="text-xs text-danger">{(patchMutation.error as Error).message}</p>
-              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -113,7 +113,10 @@ async def upload_studies(
         shutil.rmtree(tmp_root, ignore_errors=True)
 
     return StudyUploadResponse(
-        items=[StudySummary.model_validate(svc.study_to_dict(s, include_series=True)) for s in studies],
+        items=[
+            StudySummary.model_validate(d)
+            for d in svc.studies_to_dicts(studies, include_series=True)
+        ],
         total=len(studies),
     )
 
@@ -129,7 +132,10 @@ def list_studies(
 ) -> Page[StudySummary]:
     rows, total = svc.list_studies(page=page, page_size=page_size, modality=modality, body_part=body_part, q=q)
     return Page(
-        items=[StudySummary.model_validate(svc.study_to_dict(s, include_series=True)) for s in rows],
+        items=[
+            StudySummary.model_validate(d)
+            for d in svc.studies_to_dicts(rows, include_series=True)
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -141,10 +147,16 @@ def get_study(study_uid: str, svc: StudyService = Depends(get_study_service)) ->
     study = svc.get_study(study_uid)
     if study is None:
         raise HTTPException(status_code=404, detail={"code": "STUDY_NOT_FOUND", "message": study_uid})
-    return StudySummary.model_validate(svc.study_to_dict(study, include_series=True))
+    last_map = svc.last_tasks_for_studies([study_uid])
+    return StudySummary.model_validate(
+        svc.study_to_dict(study, include_series=True, last_task=last_map.get(study_uid))
+    )
 
 
 @router.post("/studies/seed-demo", response_model=StudySummary)
 def seed_demo(svc: StudyService = Depends(get_study_service)) -> StudySummary:
     study = svc.ensure_demo_data()
-    return StudySummary.model_validate(svc.study_to_dict(study, include_series=True))
+    last_map = svc.last_tasks_for_studies([study.study_uid])
+    return StudySummary.model_validate(
+        svc.study_to_dict(study, include_series=True, last_task=last_map.get(study.study_uid))
+    )

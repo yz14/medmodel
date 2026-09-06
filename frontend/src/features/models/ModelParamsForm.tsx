@@ -51,7 +51,14 @@ function propToZod(prop: JsonSchemaProperty, required: boolean): z.ZodTypeAny {
     if (typeof prop.maximum === 'number') n = n.max(prop.maximum, `最大 ${prop.maximum}`)
     base = n
   } else {
-    base = z.string()
+    base = required
+      ? z.string().trim().min(1, '不能为空')
+      : z.string()
+  }
+
+  // Optional numbers may be cleared to undefined in the form.
+  if (!required && (prop.type === 'integer' || prop.type === 'number')) {
+    return base.optional()
   }
 
   return required ? base : base.optional()
@@ -237,8 +244,8 @@ export function ModelParamsForm({
                       return
                     }
                     if (raw === '') {
-                      // Keep empty as NaN so z.number() fails clearly (not undefined).
-                      field.onChange(Number.NaN)
+                      // Optional: clear to undefined; required: NaN so z.number() fails.
+                      field.onChange(isRequired ? Number.NaN : undefined)
                       return
                     }
                     const n = prop.type === 'integer' ? parseInt(raw, 10) : Number(raw)

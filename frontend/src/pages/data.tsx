@@ -42,7 +42,21 @@ export function DataPage() {
         q: query || undefined,
         modality: modality || undefined,
       }),
+    refetchInterval: (q) => {
+      const items = q.state.data?.items ?? []
+      const active = items.some((s) => {
+        const st = s.last_task?.status
+        return st === 'queued' || st === 'running'
+      })
+      return active ? 5_000 : false
+    },
   })
+
+  useEffect(() => {
+    if (!selected || !studies.data) return
+    const fresh = studies.data.items.find((s) => s.study_uid === selected.study_uid)
+    if (fresh && fresh !== selected) setSelected(fresh)
+  }, [studies.data, selected])
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil((studies.data?.total ?? 0) / (studies.data?.page_size ?? 20))),
@@ -72,7 +86,7 @@ export function DataPage() {
               <RefreshCw className="h-4 w-4" />
               刷新
             </Button>
-            <Button onClick={() => setUploadOpen(true)}>
+            <Button onClick={() => setUploadOpen(true)} data-testid="upload-open">
               <Upload className="h-4 w-4" />
               上传影像
             </Button>

@@ -63,17 +63,11 @@
 
 ## 二、仍开放的可选缺口（摘要）
 
-### 壳 / 全局
-- 顶栏缺全局搜索 / 任务铃 / 用户菜单。
-
-### 数据中心 / 任务
-- `/studies` 补 `last_task` 后的 AI 状态列；日志时间线增强。
-
 ### 阅片器 / AI 面板
 - 高级 Hanging Protocol；完整测量组；窄屏工具条收纳；CAM / 标签本地化。
 
 ### 其它
-- 全量 i18n（Settings 已存 locale 偏好）；CS3D 正式替换主视口。
+- 全量 i18n（Settings 已存 locale 偏好）；CS3D 正式替换主视口；顶栏搜索 / 任务铃 / 用户菜单。
 
 ## 三、对照标杆（勾选 = 已具备）
 
@@ -84,8 +78,8 @@
 | 工具条 | ☑ 互斥/预设·fit·探针·比例尺 ☑ Tooltip ☑ Tools/View/Layers ☑ 布局切换 ☐ 完整测量组 ☐ 窄屏收纳 |
 | 视口 | ☑ 四角·fit·比例尺·相机 ☑ 缩放不漂 ☑ 激活边框 ☐ 方向标 |
 | AI 结果 | ☑ 列表+跳层 ☑ 接受/拒绝 ☑ Tabs 面板 ☑ hover 联动 ☑ outline ☑ 自动跳代表层 |
-| 数据表 | ☑ 分页 ☑ DataTable 排序/列显隐/密度/行选择 ☑ URL 筛选 chip |
-| 任务 | ☑ Gantt·Tabs·筛选 ☑ 批量确认 ☑ 结构化结果首屏 ☐ 日志增强 |
+| 数据表 | ☑ 分页 ☑ DataTable 排序/列显隐/密度/行选择 ☑ URL 筛选 chip ☑ AI 状态（last_task） |
+| 任务 | ☑ Gantt·Tabs·筛选 ☑ 批量确认 ☑ 结构化结果首屏 ☑ 日志 level/阶段过滤/跟随滚动 |
 | 模型 | ☑ Tabs ☑ 指标按类型 ☑ 约束/输出表格 |
 | Dashboard | ☑ 真实日任务时序 ☑ 按模型调用 ☑ 成功率 KPI |
 | a11y / 基座 | ☑ 三态·部分 a11y ☑ Toast ☑ AlertDialog ☑ 字号下限 ☑ 基座 shadcn |
@@ -131,16 +125,16 @@
 | **FE-5 总览与模型** | Dashboard + 模型卡 + Settings | 无虚构趋势；指标按类型；约束非 JSON.stringify | ✅ |
 
 ## 六、优先级
-1. 可选增强：顶栏搜索/铃、AI 状态列（需 `last_task`）、阅片测量/窄屏、日志时间线。
+1. 可选增强：CS3D 主视口、顶栏搜索/铃、阅片测量/窄屏、全量 i18n。
 2. 一切「看得见的假/错」仍优先于纯视觉打磨。
 
 ---
 
 # 杂项技术债（可选，非阻塞 FE）
 
-- [ ] `/studies` 补 `last_task`（数据表 AI 状态列）
-- [ ] 日志时间线 level 色 / stage 过滤 / 自动滚动
-- [ ] 上传表单 zod 解析边界与 mutation 反馈统一走 Toast（主路径已接 Toast，边界场景可再扫）
-- [ ] Playwright E2E 全链路冒烟（上传→推理→叠加）
+- [x] `/studies` 补 `last_task`（数据表 AI 状态列）
+- [x] 日志时间线 level 色 / stage 过滤 / 自动滚动
+- [x] 上传表单 zod 解析边界与 mutation 反馈统一走 Toast
+- [x] Playwright E2E 全链路冒烟（上传→推理→叠加）
 - [ ] Cornerstone3D 正式替换主视口（当前为实验/降级路径，见 `docs/` 下 CS3D spike 文档）
 - [ ] 全量界面 i18n（Settings 已持久化 `locale`）

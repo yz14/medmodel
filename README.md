@@ -120,7 +120,8 @@ ruff check app tests
 cd frontend
 npm run build
 npm run generate:api:check   # OpenAPI → TS 类型不得漂移
-npm run test:e2e             # 需后端 :8000；CS3D 需 VOXFLOW_E2E_CS3D=1
+npm run test:e2e             # Playwright 自动起 API+Vite；含上传→推理→叠加冒烟
+                             # CS3D 实验用例需 VOXFLOW_E2E_CS3D=1
 ```
 
 GitHub Actions：`.github/workflows/ci.yml`（ruff / mypy 子集 / pytest / build / OpenAPI check / smoke e2e）。

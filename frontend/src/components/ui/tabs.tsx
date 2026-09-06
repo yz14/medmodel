@@ -1,5 +1,5 @@
 import * as TabsPrimitive from '@radix-ui/react-tabs'
-import type { ReactNode } from 'react'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 export function Tabs({
@@ -44,11 +44,12 @@ export function TabsTrigger({
   value,
   children,
   className,
+  ...props
 }: {
   value: string
   children: ReactNode
   className?: string
-}) {
+} & ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
       value={value}
@@ -58,6 +59,7 @@ export function TabsTrigger({
         'data-[state=active]:bg-brand data-[state=active]:text-white',
         className,
       )}
+      {...props}
     >
       {children}
     </TabsPrimitive.Trigger>

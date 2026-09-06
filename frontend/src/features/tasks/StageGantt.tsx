@@ -1,13 +1,5 @@
 import { cn } from '@/lib/utils'
-
-const STAGES = ['preprocess', 'infer', 'postprocess', 'writing'] as const
-
-const STAGE_LABEL: Record<string, string> = {
-  preprocess: '预处理',
-  infer: '推理',
-  postprocess: '后处理',
-  writing: '写回',
-}
+import { GANTT_STAGES, STAGE_LABEL } from '@/features/tasks/stages'
 
 /** Horizontal stage timing bar (C-3 / GitHub Actions style). */
 export function StageGantt({
@@ -19,13 +11,13 @@ export function StageGantt({
   currentStage?: string | null
   className?: string
 }) {
-  const values = STAGES.map((s) => Number(timings?.[s] ?? 0))
+  const values = GANTT_STAGES.map((s) => Number(timings?.[s] ?? 0))
   const total = values.reduce((a, b) => a + b, 0) || 1
 
   return (
     <div className={cn('space-y-2', className)} data-testid="stage-gantt">
       <div className="flex h-3 overflow-hidden rounded-full bg-surface-2">
-        {STAGES.map((stage, i) => {
+        {GANTT_STAGES.map((stage, i) => {
           const ms = values[i] ?? 0
           const pct = Math.max(ms > 0 ? (ms / total) * 100 : 0, ms > 0 ? 4 : 0)
           const active = currentStage === stage
@@ -44,7 +36,7 @@ export function StageGantt({
         })}
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {STAGES.map((stage, i) => (
+        {GANTT_STAGES.map((stage, i) => (
           <div key={stage} className="text-xs">
             <div
               className={cn(

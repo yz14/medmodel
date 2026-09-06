@@ -7,7 +7,8 @@ const backend = path.resolve(root, '../backend')
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 120_000,
+  globalSetup: './e2e/global-setup.ts',
+  timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -29,8 +30,8 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         ...process.env,
-        VOXFLOW_TASK_FAKE_LATENCY_SCALE: '0.05',
-        VOXFLOW_TASK_MAX_CONCURRENCY: '2',
+        VOXFLOW_TASK_FAKE_LATENCY_SCALE: process.env.VOXFLOW_TASK_FAKE_LATENCY_SCALE ?? '0.05',
+        VOXFLOW_TASK_MAX_CONCURRENCY: process.env.VOXFLOW_TASK_MAX_CONCURRENCY ?? '2',
       },
     },
     {
