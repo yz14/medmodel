@@ -11,6 +11,7 @@ import { StackViewport } from '@/features/viewer/StackViewport'
 import { ViewerToolbar } from '@/features/viewer/ViewerToolbar'
 import { AiPanel } from '@/features/viewer/AiPanel'
 import { useViewerStore } from '@/stores/viewer-store'
+import { useUiStore } from '@/stores/ui-store'
 import { cn } from '@/lib/utils'
 
 export function ViewerPage() {
@@ -20,6 +21,7 @@ export function ViewerPage() {
   const setSeriesUid = useViewerStore((s) => s.setSeriesUid)
   const resetViewer = useViewerStore((s) => s.resetViewer)
   const setSliceCount = useViewerStore((s) => s.setSliceCount)
+  const experimentalCs3d = useUiStore((s) => s.experimentalCs3d)
 
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
@@ -149,9 +151,14 @@ export function ViewerPage() {
         </Link>
         <span className="text-border">|</span>
         <span className="min-w-0 flex-1 truncate text-xs text-fg">{patientLabel}</span>
-        <Link to={`/viewer-cs3d/${encodeURIComponent(studyId)}`} className="text-xs text-muted hover:text-fg">
-          CS3D Spike
-        </Link>
+        {experimentalCs3d && (
+          <Link
+            to={`/viewer-cs3d/${encodeURIComponent(studyId)}`}
+            className="text-xs text-muted hover:text-fg"
+          >
+            CS3D Spike
+          </Link>
+        )}
         <Button
           variant="ghost"
           size="icon"

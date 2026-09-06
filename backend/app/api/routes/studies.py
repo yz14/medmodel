@@ -1,14 +1,46 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.deps import get_study_service
 from app.api.schemas import Page, StudySummary, StudyUploadResponse
+from app.infra.config import get_settings
 from app.services.study_service import StudyService
 
 router = APIRouter(tags=["studies"])
+
+_CHUNK = 1024 * 1024  # 1 MiB
+
+
+class _UploadLimitError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _stream_one_file(file_obj: object, dest: Path, *, budget: int) -> int:
+    """Copy from a file-like object to dest without exceeding remaining budget."""
+    written = 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as out:
+        while True:
+            chunk = file_obj.read(_CHUNK)  # type: ignore[attr-defined]
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > budget:
+                raise _UploadLimitError(
+                    "UPLOAD_TOO_LARGE",
+                    "上传总大小超过限制",
+                )
+            out.write(chunk)
+    return written
 
 
 @router.post("/studies/upload", response_model=StudyUploadResponse)
@@ -16,14 +48,70 @@ async def upload_studies(
     files: list[UploadFile] = File(...),
     svc: StudyService = Depends(get_study_service),
 ) -> StudyUploadResponse:
-    payload: list[tuple[str, bytes]] = []
-    for f in files:
-        content = await f.read()
-        payload.append((f.filename or "upload.dcm", content))
+    settings = get_settings()
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "UPLOAD_INVALID", "message": "未提供文件"},
+        )
+    if len(files) > settings.max_upload_files:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "UPLOAD_TOO_MANY_FILES",
+                "message": f"文件数超过限制（最多 {settings.max_upload_files} 个）",
+                "details": {"max_upload_files": settings.max_upload_files, "got": len(files)},
+            },
+        )
+
+    tmp_root = Path(tempfile.mkdtemp(prefix="voxflow_upload_"))
+    total = 0
     try:
-        studies = await asyncio.to_thread(svc.upload, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "UPLOAD_INVALID", "message": str(exc)}) from exc
+        for f in files:
+            name = Path(f.filename or "upload.dcm").name
+            dest = tmp_root / name
+            remaining = settings.max_upload_bytes - total
+            if remaining <= 0:
+                raise _UploadLimitError(
+                    "UPLOAD_TOO_LARGE",
+                    f"上传总大小超过限制（最多 {settings.max_upload_bytes} 字节）",
+                )
+            try:
+                written = await asyncio.to_thread(
+                    _stream_one_file, f.file, dest, budget=remaining
+                )
+            except _UploadLimitError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "UPLOAD_INVALID", "message": f"写入失败: {exc}"},
+                ) from exc
+            total += written
+            if total > settings.max_upload_bytes:
+                raise _UploadLimitError(
+                    "UPLOAD_TOO_LARGE",
+                    f"上传总大小超过限制（最多 {settings.max_upload_bytes} 字节）",
+                )
+
+        try:
+            studies = await asyncio.to_thread(svc.upload_directory, tmp_root)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail={"code": "UPLOAD_INVALID", "message": str(exc)}
+            ) from exc
+    except _UploadLimitError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+                "details": {"max_upload_bytes": settings.max_upload_bytes},
+            },
+        ) from exc
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
     return StudyUploadResponse(
         items=[StudySummary.model_validate(svc.study_to_dict(s, include_series=True)) for s in studies],
         total=len(studies),
@@ -60,4 +148,3 @@ def get_study(study_uid: str, svc: StudyService = Depends(get_study_service)) ->
 def seed_demo(svc: StudyService = Depends(get_study_service)) -> StudySummary:
     study = svc.ensure_demo_data()
     return StudySummary.model_validate(svc.study_to_dict(study, include_series=True))
-

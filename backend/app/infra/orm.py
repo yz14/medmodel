@@ -136,6 +136,7 @@ class TaskRow(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_traceback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     work_dir: Mapped[str | None] = mapped_column(String(512), nullable=True)
     cache_hit: Mapped[bool] = mapped_column(Boolean, default=False)
     cached_from: Mapped[str | None] = mapped_column(String(64), nullable=True)

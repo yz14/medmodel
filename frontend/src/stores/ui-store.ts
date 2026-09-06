@@ -6,10 +6,13 @@ type Theme = 'dark' | 'light'
 interface UiState {
   sidebarCollapsed: boolean
   theme: Theme
+  /** N-F9: CS3D spike is evaluation-only; off by default. */
+  experimentalCs3d: boolean
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
+  setExperimentalCs3d: (v: boolean) => void
 }
 
 function applyTheme(theme: Theme) {
@@ -23,6 +26,7 @@ export const useUiStore = create<UiState>()(
     (set, get) => ({
       sidebarCollapsed: false,
       theme: 'dark',
+      experimentalCs3d: false,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
       setTheme: (theme) => {
@@ -34,6 +38,7 @@ export const useUiStore = create<UiState>()(
         applyTheme(next)
         set({ theme: next })
       },
+      setExperimentalCs3d: (v) => set({ experimentalCs3d: v }),
     }),
     {
       name: 'voxflow-ui',

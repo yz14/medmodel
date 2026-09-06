@@ -402,6 +402,15 @@ src/
 - **a11y**：Settings/导出 Switch `aria-label`；`DialogDescription` 导出
 - 验证：后端 **28 passed**；前端 `npm run build` 通过
 
+### R12 验收（上线准备）
+- **N-B5**：流式落盘上传；`max_upload_bytes` / `max_upload_files` → **413**
+- **可观测性**：`GET /api/v1/metrics`（Prometheus）；`tasks.trace_id` + worker `bind_trace_id`；Alembic `20260906_0002`
+- **N-B10**：并发幂等、无 preamble DICOM、`test_dicom_io`；上传限额回归
+- **CI**：`.github/workflows/ci.yml`（ruff / mypy 子集 / pytest / build / `generate:api:check` / smoke e2e）
+- **N-F9**：CS3D 评估降级 — 默认隐藏入口；`docs/r6-cornerstone3d-spike.md` 结论；e2e 需 `VOXFLOW_E2E_CS3D=1`
+- **README**：部署环境变量、Alembic 升级、health/metrics
+- 验证：后端 **36 passed**；前端 `npm run build` 通过
+
 ---
 
 # TODO-3 第二轮全面审查：R1～R7 修复验证 + 新问题 + 最终整改建议
@@ -424,11 +433,11 @@ src/
 | A-8 统一错误体 | ✅ 已修（实测 422/400/404 均为 `{code,message,details,trace_id}`） | |
 | A-9 测试隔离 | ✅ 已修 | |
 | B-1 分层 | ✅ R10 已修 | `models_hub` 仅 domain；volume 预载进 ctx，见 N-B8 |
-| B-2 上传非阻塞 | ⚠️ `to_thread` 已加，但仍 `await f.read()` 全量进内存 | 见 N-B5 |
+| B-2 上传非阻塞 | ✅ R12 已修 | 流式落盘 + 限额，见 N-B5 |
 | B-3 params 校验 | ✅ 已修（实测错参数 → 400） | |
-| B-4 幂等竞态 | ✅ 已修 | 测试是顺序而非并发，见 N-B10 |
+| B-4 幂等竞态 | ✅ 已修 | R12 补并发幂等测试，见 N-B10 |
 | B-5 lung_seg / stage_timings / SSE session | ✅ R8 补齐 `writing` | top-2 / 独立 session / writing stage |
-| B-6 测试覆盖 | ⚠️ 17 条，取消/并发/SR 内容仍薄 | 见 N-B10 |
+| B-6 测试覆盖 | ✅ R12 已加强 | 36+ 条含并发/DICOM IO/SR 反解析 |
 | B-7 Pan/测量/滚轮/SVG | ⚠️ 功能有了，数学不对 | Pan 未除 zoom、缩放中心漂移、测距未 clamp，见 N-F3 |
 | B-8 SSE 主通道 + 退避 | ✅ 已修 | 但仍并行 5s 轮询，见 N-F8 |
 | B-9 lazy 路由 | ✅ 已修 | `Suspense` 包在 `Routes` 外层，切页会闪掉整个 AppLayout |
@@ -441,7 +450,7 @@ src/
 | C-4 Dashboard | ✅ R8 去掉假 sparkline；环形图 CSS 色解析 | 见 N-F10/N-F11 |
 | C-5 模型卡 / health | ✅ 已修 | 分类/检测卡显示 `Dice 0.000`，见 N-F12 |
 | C-6 结构化报告 | ✅ 已修 | SR 语义不严谨，见 N-B7 |
-| R7 CS3D spike | ⚠️ 代码在，**headless 实测 15s 仍黑屏**（状态栏显示 1/40 已加载，控制台 `no COMPRESSED_FRAME_DATA` 警告） | 需手动验证，见 N-F9 |
+| R7 CS3D spike | ✅ R12 评估降级 | 非正式路径；默认隐藏；见 N-F9 |
 
 ## 二、新发现问题 —— 后端
 
@@ -452,12 +461,12 @@ src/
 - [x] **N-B4 ✅实测 时间戳无时区 → 前端全部偏 8 小时**：**R8 已修** — `utc_iso()` 统一 `…Z`；前端 `parseApiDate` 将 naive 视为 UTC；pytest `test_timestamps_serialized_with_utc_z`。
 
 ### Major
-- [ ] **N-B5 上传全量进内存**：`await f.read()` 后再 `to_thread`；大 ZIP 直接 OOM。改为 `shutil.copyfileobj(f.file, tmp)` 流式落盘，并加 `max_upload_bytes` / `max_files` 配置与 413 响应。（`api/routes/studies.py:19-22`）
+- [x] **N-B5 上传全量进内存**：**R12 已修** — 流式 `copy` 落盘；`VOXFLOW_MAX_UPLOAD_BYTES` / `MAX_UPLOAD_FILES` → 413；pytest 限额回归。
 - [x] **N-B6 未校验 `input_constraints`**：**R10 已修** — `check_input_constraints` 在 `create_task`；400 `UNSUPPORTED_INPUT`；前端 `modelCompatibility.ts` + AiPanel 灰掉；pytest MR/头颈拒绝肺模型。
 - [x] **N-B7 报告/DICOM 导出语义与健壮性**：**R11 已修** — confidence/probability → `DCM.Probability` Measurement；审阅 → QualitativeEvaluation；GSPS 越界 logging + 全越界报错；分割栈与源序列层数校验；pytest `test_report_reviews_and_sr_probability_semantics`（highdicom 反解析）。
 - [x] **N-B8 分层残留**：**R10 已修** — 插件/`registry`/`base` 不再 import `infra.logging` / `imaging.dicom_io`；stdlib logging；orchestrator 预载 `ctx.volume` + `phantom_meta`。
 - [x] **N-B9 假模型"不像真"**：**R10 已修** — HU 体表/肺 mask；det/seg 肺内采样 + 预埋结节；phantom 含脊柱/气管/血管/床板；4 例多模态 demo；气管与肺隔离修复 fill_holes 泄漏。
-- [ ] **N-B10 测试仍薄**：取消只断言状态 ∈ 集合；幂等是顺序调用而非 `gather` 并发；SR/GSPS 只查 SOPClassUID 不解析内容；`dicom_io`/`mask_utils` 无单测。至少补：并发幂等、取消后不再收到 `succeeded`、缓存命中产物可下载（N-B2 回归）、时区序列化（N-B4 回归）、无 preamble DICOM、`highdicom` 反解析 SR 树。
+- [x] **N-B10 测试仍薄**：**R12 已补** — 并发幂等 gather、无 preamble DICOM 单测、metrics/trace/上传限额；cancel/cache/timezone/SR 反解析已有回归。
 
 ### Minor
 - `stats_service.overview` 全表 `select(TaskRow)` → 用聚合；`Accept-Ranges: bytes` 声明了但 `FileResponse` 不支持 Range → 去掉或实现；`mask_utils.rle_encode`/`largest_connected_component` 死代码；`nodule_det` 里 `_ = gaussian_blob(...)` 白算一次；`dicom_io` 只认 `DICM` preamble 会漏掉合法无 preamble 文件，缺 UID 时 `generate_uid()` 每次不同会把一个序列拆成多个 study；`IMG*.dcm` 遗留清理可能误删用户文件；日志里 `trace_id=-` 在后台任务中没有关联到创建它的请求。
@@ -475,7 +484,7 @@ src/
 - [x] **N-F6 Findings"全选"逻辑错误**：**R11 已修** — `onSelectAll(ids)`；结果种子只初始化一次，不覆盖用户取消。
 - [x] **N-F7 动态表单**：**R11 已修** — `schema.required`；enum 保留 number/boolean；空数字 `NaN`。
 - [x] **N-F8 SSE 与 5s 轮询并行**：**R11 已修** — `useTaskSSE.connected`；SSE 连通时停轮询，断开回退 3s。
-- [ ] **N-F9 CS3D spike 可用性未证实 + 2.9MB chunk**：headless 实测黑屏（WebGL2 可用），控制台 `[dicomImageLoader/wadouri] no COMPRESSED_FRAME_DATA`，疑似 `/frames/{idx}` 返回内容与 wadouri 期望的完整 DICOM Part10 不匹配或 transfer syntax 元数据缺失——需手动在真浏览器验证并加 Playwright 断言"canvas 非全黑"（读像素）。此外 tools 未接入的根因是 Vite 8（rolldown）+ `@icr/polyseg-wasm`，官方模板给的解法是 `worker.rollupOptions.external: ['@icr/polyseg-wasm']` + `optimizeDeps.exclude: ['@cornerstonejs/tools']`，Vite 8 下对应 `worker.rolldownOptions`；若仍不行，可锁 Vite 7 或用 `@rollup/plugin-wasm({sync:['ICRPolySeg.wasm']})`。CS3D 依赖已进 build 产出 2.93MB chunk，即便是 lazy 也要用 `build.chunkSizeWarningLimit` 显式确认、并确保**主 `/viewer` 路径 0 依赖 CS3D**（当前 `esm--iAmJTRM.js` 需核对未被主路由引用）。
+- [x] **N-F9 CS3D spike**：**R12 评估降级** — 非正式交付路径；默认隐藏 UI 入口（Settings 实验开关）；文档结论见 `docs/r6-cornerstone3d-spike.md`；e2e 默认 skip。
 - [x] **N-F10 ✅实测 Dashboard sparkline 是假的**：**R8 已修** — 去掉 `sparkSeriesFromValue` 与 KPI 假趋势图标；无时序则不画线。
 - [x] **N-F11 ✅实测 深色主题首屏"模型应用分布"环形图空白**：**R8 已修** — `getComputedStyle` 解析 token 为实色 + `minHeight`/`debounce`/`isAnimationActive=false`。
 - [x] **N-F12 ✅实测 展示层细节**：**R8 已修** — cls/det 指标按 task_type（AUC/mAP）；缓存徽章+源任务链接；TaskList 按行 `variables` pending + `aria-label`；StudyDrawer「送去分析」→ `?panel=ai`。
@@ -504,7 +513,7 @@ src/
   3. **时间与时区**（N-B4）：全栈约定 UTC aware，SQLite 用 `TypeDecorator` 强制读出即带 tz；这一条不做，报告/审计都是错的。
   4. **数据迁移缺失**（N-B1）：ORM `create_all` 无法演进 schema。引入 Alembic（首个迁移就是 `num_instances` 回填 + `uq_task_inflight` 索引），否则第一次给医院升级版本就会翻车。
   5. **阅片器抽象层**（N-F3）：把相机矩阵、坐标换算、overlay 渲染抽成 `features/viewer/core/`（`Camera`, `toImage()`, `toScreen()`, `OverlayLayer` 接口），`StackViewport` 只做胶水。这样 CS3D 替换时 AI 面板 / Findings / 报告完全不动，只换 `Camera` 的实现来源（CS3D `viewport.getCamera()`）。
-  6. **可观测性**：后台任务日志 `trace_id=-`，应把创建请求的 trace_id 写进 TaskRow 并在 worker 里 bind；`/metrics`（Prometheus 文本格式：队列长度、各模型耗时直方图、失败计数）是 Triton/MONAI Deploy 的标配，为医院运维预留。
+  6. **可观测性**：✅ R12 — `tasks.trace_id` + worker bind；`GET /api/v1/metrics` Prometheus 文本。
 
 ## 六、最终整改建议（按依赖排序，每轮可独立验收）
 
@@ -514,7 +523,7 @@ src/
 | **R9（阅片器核心）** ✅ | N-F1～F5、N-F13 + 相机抽象 + W/L 预设 / 翻转 / 探针 / 比例尺 / PageUp-Down | **已验收**：`npm run build` 通过；显式 Camera2D；fit-to-window；smoke 断言 `stack-viewport` |
 | **R10（假模型像真 + 输入约束）** ✅ | N-B9 phantom 升级 + lung_seg 体表 mask + det/seg 肺内采样 + 多模态 demo；N-B6 约束校验 + 前端灰掉；N-B8 插件契约收口 | **已验收**：pytest **26 passed**；`npm run build` 通过；MR 上肺模型 `UNSUPPORTED_INPUT` |
 | **R11（产品力）** ✅ | Findings 三态进报告；任务筛选/搜索/错误徽章；N-F6/N-F7/N-F8；N-B7 SR 语义；a11y | **已验收**：pytest **28 passed**（含 highdicom Probability 反解析）；`npm run build` 通过 |
-| **R12（上线准备）** | N-B5 流式上传 + 限额；`/metrics` + trace_id 贯通；N-B10 测试补强（并发/取消/时区/DICOM IO）；`generate:api:check` 进 CI；N-F9 CS3D 真浏览器验证 + tools 接入或明确降级为"评估结论" | CI：ruff+mypy+pytest+tsc+build+e2e 全绿；README 写清部署与升级（Alembic）流程 |
+| **R12（上线准备）** ✅ | N-B5 流式上传；metrics + trace_id；N-B10 补测；CI + `generate:api:check`；N-F9 CS3D 评估降级；README 部署/Alembic | **已验收**：pytest **36 passed**；`npm run build` 通过；`.github/workflows/ci.yml` |
 
 > 原则提醒：R8 的问题都是"打开就能看见的错"，成本低、收益最高，务必先于任何视觉打磨完成；R9 是产品的核心竞争力，值得投入最多时间做到手感正确；R10 决定演示效果；R11/R12 决定能否真正进医院。
 

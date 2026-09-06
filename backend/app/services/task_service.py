@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.domain.contracts import InferenceContext, InferenceResult, ModelPlugin, SeriesMeta, WorkDir
 from app.domain.enums import TaskStage, TaskStatus
 from app.infra.config import get_settings
-from app.infra.logging import get_logger
+from app.infra.logging import get_logger, bind_trace_id, trace_id_var
 from app.infra.orm import ArtifactRow, SeriesRow, TaskLogRow, TaskRow
 from app.infra.queue import get_task_queue
 from app.infra.storage import StorageService
@@ -199,6 +199,7 @@ class TaskService:
             progress=0.0,
             message="任务已入队",
             work_dir=str(work),
+            trace_id=trace_id_var.get() if trace_id_var.get() != "-" else None,
         )
         self.db.add(task)
         self._add_log(task_id, "任务创建", stage=TaskStage.QUEUED.value)
@@ -351,6 +352,7 @@ class TaskService:
             "stage_timings": task.stage_timings,
             "error_code": task.error_code,
             "error_message": task.error_message,
+            "trace_id": task.trace_id,
             "created_at": utc_iso(task.created_at),
             "started_at": utc_iso(task.started_at),
             "finished_at": utc_iso(task.finished_at),
@@ -393,6 +395,8 @@ class InferenceOrchestrator:
             task = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
             if task is None:
                 return
+            if task.trace_id:
+                bind_trace_id(task.trace_id)
             if queue.is_canceled(task_id) or task.status == TaskStatus.CANCELED.value:
                 return
             series = db.scalar(select(SeriesRow).where(SeriesRow.series_uid == task.series_uid))

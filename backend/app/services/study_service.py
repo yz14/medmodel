@@ -84,9 +84,13 @@ class StudyService:
             for name, content in files:
                 dest = tmp_root / Path(name).name
                 dest.write_bytes(content)
-            return self.ingest_path(tmp_root)
+            return self.upload_directory(tmp_root)
         finally:
             shutil.rmtree(tmp_root, ignore_errors=True)
+
+    def upload_directory(self, tmp_root: Path) -> list[StudyRow]:
+        """Ingest an already-materialized upload directory (N-B5 streaming path)."""
+        return self.ingest_path(tmp_root)
 
     def ingest_path(self, source: Path) -> list[StudyRow]:
         dicom_files, temp_dirs = collect_dicom_files(source)

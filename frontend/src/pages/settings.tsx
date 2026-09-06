@@ -8,6 +8,8 @@ import { useUiStore } from '@/stores/ui-store'
 export function SettingsPage() {
   const theme = useUiStore((s) => s.theme)
   const setTheme = useUiStore((s) => s.setTheme)
+  const experimentalCs3d = useUiStore((s) => s.experimentalCs3d)
+  const setExperimentalCs3d = useUiStore((s) => s.setExperimentalCs3d)
   const health = useQuery({ queryKey: ['health'], queryFn: api.health })
 
   return (
@@ -29,6 +31,27 @@ export function SettingsPage() {
                 checked={theme === 'dark'}
                 onCheckedChange={(v) => setTheme(v ? 'dark' : 'light')}
                 aria-label="深色主题"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>实验功能</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm text-fg-strong">Cornerstone3D Spike</div>
+                <div className="text-xs text-muted">
+                  评估路由，非正式阅片路径。默认关闭；详见 docs/r6-cornerstone3d-spike.md
+                </div>
+              </div>
+              <Switch
+                checked={experimentalCs3d}
+                onCheckedChange={setExperimentalCs3d}
+                aria-label="启用 Cornerstone3D Spike"
               />
             </div>
           </CardContent>

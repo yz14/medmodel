@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 import numpy as np
 import pydicom
+from PIL import Image
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
-from PIL import Image
 
 from app.infra.logging import get_logger
 
@@ -140,10 +140,18 @@ def collect_dicom_files(source: Path) -> tuple[list[Path], list[Path]]:
 
 
 def _looks_like_dicom(path: Path) -> bool:
+    """True if Part-10 preamble present, or force-read yields a Dataset with SOP Class."""
     try:
         with path.open("rb") as fh:
             preamble = fh.read(132)
-        return len(preamble) >= 132 and preamble[128:132] == b"DICM"
+        if len(preamble) >= 132 and preamble[128:132] == b"DICM":
+            return True
+    except Exception:  # noqa: BLE001
+        return False
+    # No preamble: still accept many legal DICOM files (N-B10)
+    try:
+        ds = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+        return bool(getattr(ds, "SOPClassUID", None) or getattr(ds, "SOPInstanceUID", None))
     except Exception:  # noqa: BLE001
         return False
 

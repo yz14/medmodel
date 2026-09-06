@@ -148,6 +148,7 @@ class TaskSummary(BaseModel):
     stage_timings: JsonDict | None = None
     error_code: str | None = None
     error_message: str | None = None
+    trace_id: str | None = None
     created_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None

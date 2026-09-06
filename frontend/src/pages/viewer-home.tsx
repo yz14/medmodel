@@ -6,8 +6,10 @@ import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { useUiStore } from '@/stores/ui-store'
 
 export function ViewerHomePage() {
+  const experimentalCs3d = useUiStore((s) => s.experimentalCs3d)
   const studies = useQuery({
     queryKey: ['studies', 'viewer-home'],
     queryFn: () => api.listStudies({ page: 1, page_size: 50 }),
@@ -56,12 +58,14 @@ export function ViewerHomePage() {
                   {s.modality || '—'} · {s.num_series} 序列 · {s.study_description || s.study_uid}
                 </p>
               </Link>
-              <Link
-                to={`/viewer-cs3d/${encodeURIComponent(s.study_uid)}`}
-                className="mt-2 inline-block text-[11px] text-muted hover:text-brand"
-              >
-                打开 CS3D Spike →
-              </Link>
+              {experimentalCs3d && (
+                <Link
+                  to={`/viewer-cs3d/${encodeURIComponent(s.study_uid)}`}
+                  className="mt-2 inline-block text-[11px] text-muted hover:text-brand"
+                >
+                  打开 CS3D Spike →
+                </Link>
+              )}
             </div>
           ))}
         </div>

@@ -770,3 +770,99 @@ def test_report_reviews_and_sr_probability_semantics(client):
     assert "VF.REVIEW" in blob or "Review Status" in blob
     assert "VF.ACCEPTED" in blob or "Accepted" in blob
 
+
+def test_metrics_endpoint(client):
+    """R12: Prometheus text metrics expose queue + task counters."""
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 1.11}},
+    )
+    _wait_task(c, create.json()["task_id"])
+
+    resp = c.get("/api/v1/metrics")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers.get("content-type", "")
+    body = resp.text
+    assert "voxflow_queue_queued" in body
+    assert "voxflow_tasks_total" in body
+    assert "voxflow_models_registered" in body
+
+
+def test_task_trace_id_propagated(client):
+    """R12: create_task stores X-Trace-Id for worker correlation."""
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    create = c.post(
+        "/api/v1/tasks",
+        headers={"X-Trace-Id": "r12traceabc"},
+        json={"series_uid": series_uid, "model_id": "nodule_cls", "params": {"temperature": 1.12}},
+    )
+    assert create.status_code == 202
+    task_id = create.json()["task_id"]
+    detail = _wait_task(c, task_id)
+    assert detail["status"] == "succeeded"
+    assert detail.get("trace_id") == "r12traceabc"
+
+
+def test_concurrent_idempotent_create(client):
+    """N-B10: parallel create for same series/model/params shares one inflight task_id."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    body = {
+        "series_uid": series_uid,
+        "model_id": "nodule_cls",
+        "params": {"temperature": 1.333},
+    }
+
+    def _post():
+        return c.post("/api/v1/tasks", json=body)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_post) for _ in range(4)]
+        results = [f.result() for f in as_completed(futures)]
+
+    assert all(r.status_code == 202 for r in results), [r.text for r in results]
+    ids = {r.json()["task_id"] for r in results}
+    assert len(ids) == 1, ids
+    detail = _wait_task(c, next(iter(ids)))
+    assert detail["status"] == "succeeded"
+
+
+def test_upload_rejects_too_many_files(client, monkeypatch):
+    """N-B5: max_upload_files → 413."""
+    monkeypatch.setenv("VOXFLOW_MAX_UPLOAD_FILES", "1")
+    get_settings.cache_clear()
+
+    c, _ = client
+    files = [
+        ("a.dcm", b"not-really-dicom-1", "application/dicom"),
+        ("b.dcm", b"not-really-dicom-2", "application/dicom"),
+    ]
+    resp = c.post(
+        "/api/v1/studies/upload",
+        files=[("files", f) for f in files],
+    )
+    assert resp.status_code == 413, resp.text
+    assert resp.json()["code"] == "UPLOAD_TOO_MANY_FILES"
+    get_settings.cache_clear()
+
+
+def test_upload_rejects_too_large(client, monkeypatch):
+    """N-B5: max_upload_bytes → 413."""
+    monkeypatch.setenv("VOXFLOW_MAX_UPLOAD_BYTES", "32")
+    get_settings.cache_clear()
+
+    c, _ = client
+    payload = b"x" * 64
+    resp = c.post(
+        "/api/v1/studies/upload",
+        files=[("files", ("big.bin", payload, "application/octet-stream"))],
+    )
+    assert resp.status_code == 413, resp.text
+    assert resp.json()["code"] == "UPLOAD_TOO_LARGE"
+    get_settings.cache_clear()
+

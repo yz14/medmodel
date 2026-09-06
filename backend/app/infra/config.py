@@ -6,7 +6,6 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = ROOT_DIR.parent
 
@@ -25,6 +24,9 @@ class Settings(BaseSettings):
 
     task_max_concurrency: int = 2
     task_fake_latency_scale: float = 1.0
+    # N-B5: upload limits (per request total bytes / file count)
+    max_upload_bytes: int = 512 * 1024 * 1024  # 512 MiB
+    max_upload_files: int = 500
     cors_origins: list[str] = Field(
         default_factory=lambda: [
             "http://localhost:5173",
