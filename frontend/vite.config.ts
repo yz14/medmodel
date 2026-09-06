@@ -46,7 +46,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        // Default :8000. If API runs elsewhere (e.g. :8040):
+        //   PowerShell: $env:VOXFLOW_API_PROXY="http://127.0.0.1:8040"; npm run dev
+        target: process.env.VOXFLOW_API_PROXY || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },
