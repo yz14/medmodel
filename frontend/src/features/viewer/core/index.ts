@@ -10,8 +10,12 @@ export {
   panBy,
   cameraCssTransform,
   relativeZoom,
+  isNearFit,
+  shortSideFillRatio,
   CAMERA_SCALE_MIN,
   CAMERA_SCALE_MAX,
+  FIT_PADDING_PX,
+  FIT_RELATIVE_EPS,
   type Camera2D,
   type Point2D,
 } from './camera'
@@ -22,3 +26,12 @@ export {
   niceScaleBarMm,
   type WindowPreset,
 } from './presets'
+
+export {
+  buildViewerLayers,
+  layerById,
+  isLayerVisible,
+  type LayerKind,
+  type LayerFlags,
+  type ViewerLayer,
+} from './layers'

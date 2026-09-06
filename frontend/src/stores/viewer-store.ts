@@ -31,6 +31,8 @@ interface ViewerState {
   maskOpacity: number
   showMasks: boolean
   showBoxes: boolean
+  /** Length / ROI annotations on the viewport. */
+  showAnnotations: boolean
   enabledMaskIds: number[]
   measurements: LengthMeasurement[]
   draftLength: { x: number; y: number } | null
@@ -56,6 +58,7 @@ interface ViewerState {
   setMaskOpacity: (v: number) => void
   setShowMasks: (v: boolean) => void
   setShowBoxes: (v: boolean) => void
+  setShowAnnotations: (v: boolean) => void
   setEnabledMaskIds: (ids: number[]) => void
   toggleMaskId: (id: number) => void
   addMeasurement: (m: LengthMeasurement) => void
@@ -85,6 +88,7 @@ const defaults = {
   maskOpacity: 0.45,
   showMasks: true,
   showBoxes: true,
+  showAnnotations: true,
   enabledMaskIds: [] as number[],
   measurements: [] as LengthMeasurement[],
   draftLength: null as { x: number; y: number } | null,
@@ -145,6 +149,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setMaskOpacity: (v) => set({ maskOpacity: v }),
   setShowMasks: (v) => set({ showMasks: v }),
   setShowBoxes: (v) => set({ showBoxes: v }),
+  setShowAnnotations: (v) => set({ showAnnotations: v }),
   setEnabledMaskIds: (ids) => set({ enabledMaskIds: ids }),
   toggleMaskId: (id) => {
     const cur = get().enabledMaskIds

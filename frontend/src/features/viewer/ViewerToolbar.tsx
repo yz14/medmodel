@@ -1,15 +1,20 @@
+import { type ReactNode } from 'react'
 import {
+  BoxSelect,
   Contrast,
   Crosshair,
   FlipHorizontal2,
   FlipVertical2,
   Hand,
+  Layers,
   Maximize2,
   MoveHorizontal,
   Ratio,
   Ruler,
   RotateCcw,
   Rows3,
+  Scan,
+  SunMoon,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -20,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { WINDOW_PRESETS, relativeZoom, zoomAt } from '@/features/viewer/core'
@@ -34,6 +40,38 @@ const TOOLS: Array<{ id: ViewerTool; label: string; icon: typeof Hand; hint: str
   { id: 'zoom', label: '缩放', icon: MoveHorizontal, hint: '5 · Ctrl+滚轮 / 拖动' },
   { id: 'probe', label: '探针', icon: Crosshair, hint: '6 · HU 探针' },
 ]
+
+function ToolBtn({
+  label,
+  hint,
+  active,
+  onClick,
+  children,
+}: {
+  label: string
+  hint?: string
+  active?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant={active ? 'secondary' : 'ghost'}
+          size="icon"
+          aria-label={label}
+          aria-pressed={active}
+          className={cn('h-8 w-8', active && 'bg-brand/15 text-brand')}
+          onClick={onClick}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{hint ?? label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export function ViewerToolbar({
   sliceCount,
@@ -60,6 +98,12 @@ export function ViewerToolbar({
   const setTool = useViewerStore((s) => s.setTool)
   const resetViewTransform = useViewerStore((s) => s.resetViewTransform)
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements)
+  const showMasks = useViewerStore((s) => s.showMasks)
+  const showBoxes = useViewerStore((s) => s.showBoxes)
+  const showAnnotations = useViewerStore((s) => s.showAnnotations)
+  const setShowMasks = useViewerStore((s) => s.setShowMasks)
+  const setShowBoxes = useViewerStore((s) => s.setShowBoxes)
+  const setShowAnnotations = useViewerStore((s) => s.setShowAnnotations)
 
   const zoomPct = relativeZoom(camera, fitScale || camera.scale)
 
@@ -74,35 +118,40 @@ export function ViewerToolbar({
   }
 
   return (
-    <div className="flex h-12 items-center gap-2 border-b border-border bg-surface-1 px-3">
-      <div className="min-w-0 flex-1 truncate text-xs text-muted">{patientLabel}</div>
+    <div className="flex h-12 items-center gap-1.5 overflow-x-auto border-b border-border bg-surface-1 px-3">
+      <div className="min-w-0 max-w-[10rem] shrink truncate text-xs text-muted xl:max-w-[14rem]">
+        {patientLabel}
+      </div>
 
-      <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5">
+      {/* Tools */}
+      <div
+        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
+        role="group"
+        aria-label="工具"
+      >
         {TOOLS.map((t) => {
           const Icon = t.icon
           return (
-            <Tooltip key={t.id}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={tool === t.id ? 'secondary' : 'ghost'}
-                  size="icon"
-                  aria-label={t.label}
-                  className={cn('h-8 w-8', tool === t.id && 'bg-brand/15 text-brand')}
-                  onClick={() => setTool(t.id)}
-                >
-                  <Icon className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t.hint}</TooltipContent>
-            </Tooltip>
+            <ToolBtn
+              key={t.id}
+              label={t.label}
+              hint={t.hint}
+              active={tool === t.id}
+              onClick={() => setTool(t.id)}
+            >
+              <Icon className="h-4 w-4" />
+            </ToolBtn>
           )
         })}
       </div>
 
-      <div className="flex items-center gap-2">
+      <Separator orientation="vertical" className="mx-0.5 hidden h-6 sm:block" />
+
+      {/* Slice nav */}
+      <div className="flex shrink-0 items-center gap-2" aria-label="层导航">
         <span className="text-xs text-muted">层</span>
         <Slider
-          className="w-28"
+          className="w-24 sm:w-28"
           min={0}
           max={Math.max(sliceCount - 1, 0)}
           step={1}
@@ -115,118 +164,94 @@ export function ViewerToolbar({
         </span>
       </div>
 
-      <div className="hidden items-center gap-1.5 lg:flex">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 max-w-[7.5rem]" aria-label="窗宽窗位预设">
-              窗位预设
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {WINDOW_PRESETS.map((p) => (
-              <DropdownMenuItem key={p.id} onSelect={() => setWindow(p.ww, p.wc)}>
-                {p.label} ({p.ww}/{p.wc})
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <Separator orientation="vertical" className="mx-0.5 hidden h-6 md:block" />
 
-      <div className="hidden items-center gap-2 xl:flex">
-        <span className="text-xs text-muted">W</span>
-        <Slider
-          className="w-20"
-          min={1}
-          max={4000}
-          step={1}
-          value={[windowWidth]}
-          onValueChange={([v]) => setWindow(v ?? windowWidth, windowCenter)}
-          aria-label="窗宽"
-        />
-        <span className="text-xs text-muted">L</span>
-        <Slider
-          className="w-20"
-          min={-1000}
-          max={1000}
-          step={1}
-          value={[windowCenter]}
-          onValueChange={([v]) => setWindow(windowWidth, v ?? windowCenter)}
-          aria-label="窗位"
-        />
-      </div>
+      {/* View */}
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        role="group"
+        aria-label="视图"
+      >
+        <div className="hidden items-center gap-1.5 lg:flex">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 max-w-[7.5rem]"
+                aria-label="窗宽窗位预设"
+              >
+                窗位预设
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {WINDOW_PRESETS.map((p) => (
+                <DropdownMenuItem key={p.id} onSelect={() => setWindow(p.ww, p.wc)}>
+                  {p.label} ({p.ww}/{p.wc})
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-      <div className="flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => zoomAboutCenter(0.9)}
-          title="缩小"
-          aria-label="缩小"
-        >
+        <div className="hidden items-center gap-2 xl:flex">
+          <span className="text-xs text-muted">W</span>
+          <Slider
+            className="w-20"
+            min={1}
+            max={4000}
+            step={1}
+            value={[windowWidth]}
+            onValueChange={([v]) => setWindow(v ?? windowWidth, windowCenter)}
+            aria-label="窗宽"
+          />
+          <span className="text-xs text-muted">L</span>
+          <Slider
+            className="w-20"
+            min={-1000}
+            max={1000}
+            step={1}
+            value={[windowCenter]}
+            onValueChange={([v]) => setWindow(windowWidth, v ?? windowCenter)}
+            aria-label="窗位"
+          />
+        </div>
+
+        <ToolBtn label="缩小" onClick={() => zoomAboutCenter(0.9)}>
           <ZoomOut className="h-4 w-4" />
-        </Button>
+        </ToolBtn>
         <span className="hidden w-10 text-center text-xs tabular-nums text-muted sm:inline">
           {(zoomPct * 100).toFixed(0)}%
         </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => zoomAboutCenter(1.1)}
-          title="放大"
-          aria-label="放大"
-        >
+        <ToolBtn label="放大" onClick={() => zoomAboutCenter(1.1)}>
           <ZoomIn className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title="适应窗口 (F)"
-          aria-label="适应窗口"
+        </ToolBtn>
+        <ToolBtn
+          label="适应窗口"
+          hint="适应窗口 (F)"
           onClick={() => window.dispatchEvent(new Event('voxflow:viewer-fit'))}
         >
           <Maximize2 className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title="1:1 像素"
-          aria-label="1比1"
+        </ToolBtn>
+        <ToolBtn
+          label="1比1"
+          hint="1:1 像素"
           onClick={() => window.dispatchEvent(new Event('voxflow:viewer-1to1'))}
         >
           <Ratio className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={flipH ? 'secondary' : 'ghost'}
-          size="icon"
-          onClick={() => toggleFlipH()}
-          title="水平翻转 (H)"
-          aria-label="水平翻转"
-        >
+        </ToolBtn>
+        <ToolBtn label="水平翻转" hint="水平翻转 (H)" active={flipH} onClick={() => toggleFlipH()}>
           <FlipHorizontal2 className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={flipV ? 'secondary' : 'ghost'}
-          size="icon"
-          onClick={() => toggleFlipV()}
-          title="垂直翻转 (V)"
-          aria-label="垂直翻转"
-        >
+        </ToolBtn>
+        <ToolBtn label="垂直翻转" hint="垂直翻转 (V)" active={flipV} onClick={() => toggleFlipV()}>
           <FlipVertical2 className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={invert ? 'secondary' : 'ghost'}
-          size="icon"
-          onClick={() => setInvert(!invert)}
-          title="反色 (I)"
-          aria-label="反色"
-        >
-          <FlipVertical2 className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title="重置视图 (R)"
-          aria-label="重置"
+        </ToolBtn>
+        <ToolBtn label="反色" hint="反色 (I)" active={invert} onClick={() => setInvert(!invert)}>
+          <SunMoon className="h-4 w-4" />
+        </ToolBtn>
+        <ToolBtn
+          label="重置"
+          hint="重置视图 (R)"
           onClick={() => {
             resetViewTransform()
             clearMeasurements()
@@ -234,7 +259,44 @@ export function ViewerToolbar({
           }}
         >
           <RotateCcw className="h-4 w-4" />
-        </Button>
+        </ToolBtn>
+      </div>
+
+      <Separator orientation="vertical" className="mx-0.5 hidden h-6 lg:block" />
+
+      {/* Layers */}
+      <div
+        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
+        role="group"
+        aria-label="图层"
+      >
+        <span className="hidden px-1.5 text-xs text-muted sm:inline">
+          <Layers className="inline h-3.5 w-3.5" />
+        </span>
+        <ToolBtn
+          label="分割掩膜"
+          hint="显示 / 隐藏分割掩膜"
+          active={showMasks}
+          onClick={() => setShowMasks(!showMasks)}
+        >
+          <Scan className="h-4 w-4" />
+        </ToolBtn>
+        <ToolBtn
+          label="检测框"
+          hint="显示 / 隐藏检测框"
+          active={showBoxes}
+          onClick={() => setShowBoxes(!showBoxes)}
+        >
+          <BoxSelect className="h-4 w-4" />
+        </ToolBtn>
+        <ToolBtn
+          label="测量"
+          hint="显示 / 隐藏测距标注"
+          active={showAnnotations}
+          onClick={() => setShowAnnotations(!showAnnotations)}
+        >
+          <Ruler className="h-4 w-4" />
+        </ToolBtn>
       </div>
     </div>
   )

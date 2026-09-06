@@ -19,6 +19,7 @@ function PageFallback() {
 export function AppLayout() {
   const location = useLocation()
   const theme = useUiStore((s) => s.theme)
+  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed)
   const isViewer =
     location.pathname.startsWith('/viewer/') || location.pathname.startsWith('/viewer-cs3d/')
 
@@ -30,6 +31,14 @@ export function AppLayout() {
     }
     applyTheme(theme)
   }, [isViewer, theme])
+
+  // 阅片页自动收起 App 侧栏为图标栏；离开时恢复进入前状态
+  useEffect(() => {
+    if (!isViewer) return
+    const prevCollapsed = useUiStore.getState().sidebarCollapsed
+    setSidebarCollapsed(true)
+    return () => setSidebarCollapsed(prevCollapsed)
+  }, [isViewer, setSidebarCollapsed])
 
   return (
     <div className={cn('flex h-full min-h-0 bg-surface-0', isViewer && 'dark')}>

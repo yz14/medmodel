@@ -8,6 +8,9 @@ import {
   cameraCssTransform,
   clampImagePoint,
   fitCamera,
+  buildViewerLayers,
+  isLayerVisible,
+  isNearFit,
   niceScaleBarMm,
   oneToOneCamera,
   panBy,
@@ -64,11 +67,26 @@ export function StackViewport({
   const activeTaskId = useViewerStore((s) => s.activeTaskId)
   const showBoxes = useViewerStore((s) => s.showBoxes)
   const showMasks = useViewerStore((s) => s.showMasks)
+  const showAnnotations = useViewerStore((s) => s.showAnnotations)
   const maskOpacity = useViewerStore((s) => s.maskOpacity)
   const enabledMaskIds = useViewerStore((s) => s.enabledMaskIds)
   const measurements = useViewerStore((s) => s.measurements)
   const draftLength = useViewerStore((s) => s.draftLength)
   const probeHu = useViewerStore((s) => s.probeHu)
+
+  const layers = useMemo(
+    () =>
+      buildViewerLayers({
+        showMasks,
+        showBoxes,
+        showAnnotations,
+        maskOpacity,
+      }),
+    [showMasks, showBoxes, showAnnotations, maskOpacity],
+  )
+  const layerMaskOn = isLayerVisible(layers, 'mask')
+  const layerBoxesOn = isLayerVisible(layers, 'overlay')
+  const layerAnnOn = isLayerVisible(layers, 'annotation')
 
   const { frame, error, loading } = useFrameStack(seriesUid, sliceIndex, sliceCount)
 
@@ -91,8 +109,9 @@ export function StackViewport({
     renderFrameToCanvas(baseRef.current, frame, windowWidth, windowCenter, invert)
   }, [frame, windowWidth, windowCenter, invert])
 
-  // Fit-to-window when image size / series changes or user requests fit (N-F13).
+  // Fit-to-window when image size / series changes or user requests fit (FE-2).
   // Do NOT depend on `frame` identity — slice scroll must not reset the camera.
+  // On resize: re-fit only when still near last fit; never rewrite fitScale while user-zoomed.
   const imageW = frame?.width ?? 0
   const imageH = frame?.height ?? 0
   useEffect(() => {
@@ -104,12 +123,17 @@ export function StackViewport({
     const apply = (forceCamera: boolean) => {
       const rect = el.getBoundingClientRect()
       if (rect.width < 2 || rect.height < 2) return
-      const cam = fitCamera(rect.width, rect.height, imageW, imageH)
-      setFitScale(cam.scale)
-      if (forceCamera || !fittedKeyRef.current.startsWith(imageKey)) {
-        setCamera(cam)
+      const fitted = fitCamera(rect.width, rect.height, imageW, imageH)
+      const state = useViewerStore.getState()
+      const newImage = !fittedKeyRef.current.startsWith(imageKey)
+      const shouldRefit = forceCamera || newImage || isNearFit(state.camera, state.fitScale)
+
+      if (shouldRefit) {
+        setCamera(fitted)
+        setFitScale(fitted.scale)
         fittedKeyRef.current = `${imageKey}:${fitNonce}`
       }
+      // User-zoomed: keep absolute camera + fitScale so relative % and pivot stay stable.
     }
 
     apply(true)
@@ -130,7 +154,7 @@ export function StackViewport({
     let cancelled = false
 
     async function run() {
-      if (!showMasks || !activeTaskId || !result?.masks?.length || !enabledMaskIds.length) {
+      if (!layerMaskOn || !activeTaskId || !result?.masks?.length || !enabledMaskIds.length) {
         const ctx = canvas!.getContext('2d')
         if (ctx) {
           canvas!.width = frame!.width
@@ -155,16 +179,16 @@ export function StackViewport({
     return () => {
       cancelled = true
     }
-  }, [frame, showMasks, activeTaskId, result, enabledMaskIds, maskOpacity, sliceIndex])
+  }, [frame, layerMaskOn, activeTaskId, result, enabledMaskIds, maskOpacity, sliceIndex])
 
   const boxesOnSlice = useMemo(() => {
-    if (!showBoxes || !result?.boxes?.length) return [] as DetectionBox[]
+    if (!layerBoxesOn || !result?.boxes?.length) return [] as DetectionBox[]
     return result.boxes.filter((b) => b.slice_index == null || b.slice_index === sliceIndex)
-  }, [result, showBoxes, sliceIndex])
+  }, [result, layerBoxesOn, sliceIndex])
 
   const sliceMeasurements = useMemo(
-    () => measurements.filter((m) => m.sliceIndex === sliceIndex),
-    [measurements, sliceIndex],
+    () => (layerAnnOn ? measurements.filter((m) => m.sliceIndex === sliceIndex) : []),
+    [measurements, sliceIndex, layerAnnOn],
   )
 
   const spacingRow = spacing?.[1] ?? 1
@@ -548,7 +572,9 @@ export function StackViewport({
               )
             })}
 
-            {draftLength && <circle cx={draftLength.x} cy={draftLength.y} r={4} fill="#38BDF8" />}
+            {draftLength && layerAnnOn && (
+              <circle cx={draftLength.x} cy={draftLength.y} r={4} fill="#38BDF8" />
+            )}
           </svg>
         </div>
       )}

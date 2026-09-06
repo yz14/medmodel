@@ -1,5 +1,5 @@
 /**
- * Explicit 2D camera for stack viewport (N-F3 / N-F13).
+ * Explicit 2D camera for stack viewport (N-F3 / N-F13 / FE-2).
  * image → screen: p' = p * scale + t
  * Zoom about a screen point: t' = mouse - (mouse - t) * (s'/s)
  */
@@ -18,6 +18,12 @@ export interface Point2D {
 export const CAMERA_SCALE_MIN = 0.05
 export const CAMERA_SCALE_MAX = 32
 
+/** Default letterbox padding (px). Keep small so fitted image fills ≥90% of short side. */
+export const FIT_PADDING_PX = 2
+
+/** Relative zoom within this ε of 1.0 is treated as "at fit" (re-fit on resize). */
+export const FIT_RELATIVE_EPS = 0.03
+
 export function identityCamera(): Camera2D {
   return { scale: 1, tx: 0, ty: 0 }
 }
@@ -28,7 +34,7 @@ export function fitCamera(
   viewportH: number,
   imageW: number,
   imageH: number,
-  padding = 8,
+  padding = FIT_PADDING_PX,
 ): Camera2D {
   const availW = Math.max(1, viewportW - padding * 2)
   const availH = Math.max(1, viewportH - padding * 2)
@@ -129,4 +135,35 @@ export function cameraCssTransform(
 export function relativeZoom(cam: Camera2D, fitScale: number): number {
   if (!fitScale || fitScale <= 0) return cam.scale
   return cam.scale / fitScale
+}
+
+/** True when camera is still at (or very near) last fit — safe to re-fit on panel resize. */
+export function isNearFit(
+  cam: Camera2D,
+  fitScale: number,
+  eps = FIT_RELATIVE_EPS,
+): boolean {
+  if (!fitScale || fitScale <= 0) return true
+  return Math.abs(relativeZoom(cam, fitScale) - 1) <= eps
+}
+
+/**
+ * Fraction of the viewport short side covered by the fitted image short axis.
+ * Used for FE-2 acceptance (≥0.9 after fit).
+ */
+export function shortSideFillRatio(
+  viewportW: number,
+  viewportH: number,
+  imageW: number,
+  imageH: number,
+  cam: Camera2D,
+): number {
+  const viewShort = Math.min(viewportW, viewportH)
+  if (viewShort <= 0) return 0
+  const drawnW = imageW * cam.scale
+  const drawnH = imageH * cam.scale
+  if (viewportW <= viewportH) {
+    return Math.min(1, drawnW / viewShort)
+  }
+  return Math.min(1, drawnH / viewShort)
 }
