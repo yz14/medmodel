@@ -43,9 +43,11 @@ export function SettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <div className="text-sm text-fg-strong">Cornerstone3D Spike</div>
+                <div className="text-sm text-fg-strong">Cornerstone3D（实验）</div>
                 <div className="text-xs text-muted">
-                  评估路由，非正式阅片路径。默认关闭；详见 docs/r6-cornerstone3d-spike.md
+                  仅评估用。开启后可通过 URL{' '}
+                  <code className="rounded bg-surface-2 px-1">/viewer-cs3d/:studyId</code>{' '}
+                  访问；不进入正式阅片路径。详见 docs/r6-cornerstone3d-spike.md
                 </div>
               </div>
               <Switch

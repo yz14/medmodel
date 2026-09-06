@@ -520,7 +520,7 @@ export function StackViewport({
                     x={x}
                     y={Math.max(12, y - 4)}
                     fill="#F59E0B"
-                    fontSize={Math.max(10, frame.width / 40)}
+                    fontSize={Math.max(12, frame.width / 40)}
                   >
                     {box.label} {(box.confidence * 100).toFixed(0)}%
                   </text>
@@ -539,7 +539,7 @@ export function StackViewport({
                     x={(m.x1 + m.x2) / 2}
                     y={(m.y1 + m.y2) / 2 - 6}
                     fill="#38BDF8"
-                    fontSize={Math.max(11, frame.width / 42)}
+                    fontSize={Math.max(12, frame.width / 42)}
                     textAnchor="middle"
                   >
                     {dist.toFixed(1)} mm
@@ -556,7 +556,7 @@ export function StackViewport({
       {/* Scale bar (screen space) */}
       {frame && scaleBarPx > 20 && (
         <div className="pointer-events-none absolute bottom-10 left-1/2 z-20 -translate-x-1/2">
-          <div className="flex flex-col items-center gap-0.5 text-[10px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+          <div className="flex flex-col items-center gap-0.5 text-xs text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
             <div className="h-0.5 bg-white/90" style={{ width: scaleBarPx }} />
             <div className="tabular-nums">{scaleBarMm} mm</div>
           </div>

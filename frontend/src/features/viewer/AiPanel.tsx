@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Play, Square } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatMs } from '@/lib/format'
+import { toast } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { Select } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -126,6 +127,10 @@ export function AiPanel({
       setActiveTaskId(res.task_id)
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success('已创建推理任务')
+    },
+    onError: (err) => {
+      toast.error((err as Error).message || '创建任务失败')
     },
   })
 
@@ -133,6 +138,10 @@ export function AiPanel({
     mutationFn: () => api.cancelTask(activeTaskId!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['task', activeTaskId] })
+      toast.success('已取消任务')
+    },
+    onError: (err) => {
+      toast.error((err as Error).message || '取消失败')
     },
   })
 
@@ -178,24 +187,28 @@ export function AiPanel({
         <div className="space-y-2">
           <label className="text-xs text-muted">选择模型</label>
           <Select
-            value={selected?.id ?? ''}
-            onChange={(e) => setSelectedModelId(e.target.value)}
+            value={selected?.id}
+            onValueChange={setSelectedModelId}
             disabled={!models.length}
-            data-testid="model-select"
           >
-            {compatibleModels.map(({ model: m, compat }) => (
-              <option key={m.id} value={m.id} disabled={!compat.ok}>
-                {m.name} · {m.task_type}
-                {!compat.ok && compat.reason ? `（${compat.reason}）` : ''}
-              </option>
-            ))}
+            <SelectTrigger data-testid="model-select" aria-label="选择模型">
+              <SelectValue placeholder="选择模型" />
+            </SelectTrigger>
+            <SelectContent>
+              {compatibleModels.map(({ model: m, compat }) => (
+                <SelectItem key={m.id} value={m.id} disabled={!compat.ok}>
+                  {m.name} · {m.task_type}
+                  {!compat.ok && compat.reason ? `（${compat.reason}）` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           {!selectedCompat.ok && selectedCompat.reason && (
-            <p className="text-[11px] text-warning" data-testid="model-incompatible">
+            <p className="text-xs text-warning" data-testid="model-incompatible">
               当前序列不适用：{selectedCompat.reason}
             </p>
           )}
-          {selected && <p className="text-[11px] leading-relaxed text-muted">{selected.description}</p>}
+          {selected && <p className="text-xs leading-relaxed text-muted">{selected.description}</p>}
         </div>
 
         {selected && (
@@ -243,10 +256,10 @@ export function AiPanel({
           <div className="space-y-2 rounded-lg border border-border bg-surface-0 p-3" data-testid="task-progress">
             <div className="flex items-center justify-between gap-2">
               <StatusBadge status={task.status} />
-              <span className="text-[11px] text-muted">{task.stage}</span>
+              <span className="text-xs text-muted">{task.stage}</span>
             </div>
             <Progress value={task.progress} />
-            <p className="text-[11px] text-muted">{task.message}</p>
+            <p className="text-xs text-muted">{task.message}</p>
           </div>
         )}
 
@@ -254,8 +267,8 @@ export function AiPanel({
           <div className="space-y-3">
             <div className="rounded-lg border border-border bg-surface-0 p-3">
               <div className="text-xs font-medium text-fg-strong">结果摘要</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted">{result.summary}</p>
-              <p className="mt-2 text-[11px] text-muted">耗时 {formatMs(result.runtime_ms)}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">{result.summary}</p>
+              <p className="mt-2 text-xs text-muted">耗时 {formatMs(result.runtime_ms)}</p>
             </div>
 
             <div className="space-y-2 rounded-lg border border-border p-3">
@@ -276,7 +289,7 @@ export function AiPanel({
                 />
               </div>
               <div>
-                <div className="mb-1 flex justify-between text-[11px] text-muted">
+                <div className="mb-1 flex justify-between text-xs text-muted">
                   <span>叠加透明度</span>
                   <span>{Math.round(maskOpacity * 100)}%</span>
                 </div>
@@ -284,9 +297,9 @@ export function AiPanel({
                   min={0}
                   max={1}
                   step={0.05}
-                  value={maskOpacity}
+                  value={[maskOpacity]}
                   aria-label="掩膜叠加透明度"
-                  onChange={(e) => setMaskOpacity(Number(e.target.value))}
+                  onValueChange={([v]) => setMaskOpacity(v ?? maskOpacity)}
                 />
               </div>
             </div>

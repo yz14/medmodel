@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { toast } from '@/components/ui/sonner'
 import { ModelParamsForm } from '@/features/models/ModelParamsForm'
 import { asJsonSchema } from '@/types/api'
 
@@ -51,7 +52,9 @@ export function ModelDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['model', modelId] })
       void queryClient.invalidateQueries({ queryKey: ['models'] })
       void queryClient.invalidateQueries({ queryKey: ['model-ready', modelId] })
+      toast.success('模型配置已保存')
     },
+    onError: (err) => toast.error((err as Error).message || '保存失败'),
   })
 
   if (model.isLoading) {
@@ -176,7 +179,7 @@ export function ModelDetailPage() {
               <CardTitle>输入约束</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-[11px] text-muted">
+              <pre className="overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-xs text-muted">
                 {JSON.stringify(constraints, null, 2)}
               </pre>
             </CardContent>

@@ -4,6 +4,13 @@ import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { JsonSchema, JsonSchemaProperty } from '@/types/api'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 function coerceEnumValue(raw: string, samples: unknown[]): unknown {
@@ -135,7 +142,7 @@ export function ModelParamsForm({
   }, [isValid, onValidityChange])
 
   if (!entries.length) {
-    return <p className="text-[11px] text-muted">该模型无额外参数</p>
+    return <p className="text-xs text-muted">该模型无额外参数</p>
   }
 
   return (
@@ -166,7 +173,7 @@ export function ModelParamsForm({
                   )}
                 />
               </div>
-              {error && <p className="text-[11px] text-danger">{error}</p>}
+              {error && <p className="text-xs text-danger">{error}</p>}
             </div>
           )
         }
@@ -182,22 +189,24 @@ export function ModelParamsForm({
                 name={key}
                 control={control}
                 render={({ field }) => (
-                  <select
-                    className="flex h-9 w-full rounded-lg border border-border bg-surface-0 px-3 text-sm"
+                  <Select
                     value={String(field.value ?? '')}
-                    onChange={(e) => field.onChange(coerceEnumValue(e.target.value, prop.enum!))}
-                    aria-invalid={!!error}
-                    aria-label={title}
+                    onValueChange={(v) => field.onChange(coerceEnumValue(v, prop.enum!))}
                   >
-                    {prop.enum!.map((item) => (
-                      <option key={String(item)} value={String(item)}>
-                        {String(item)}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger aria-invalid={!!error} aria-label={title}>
+                      <SelectValue placeholder="请选择" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {prop.enum!.map((item) => (
+                        <SelectItem key={String(item)} value={String(item)}>
+                          {String(item)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               />
-              {error && <p className="text-[11px] text-danger">{error}</p>}
+              {error && <p className="text-xs text-danger">{error}</p>}
             </label>
           )
         }
@@ -238,7 +247,7 @@ export function ModelParamsForm({
                 />
               )}
             />
-            {error && <p className="text-[11px] text-danger">{error}</p>}
+            {error && <p className="text-xs text-danger">{error}</p>}
           </label>
         )
       })}

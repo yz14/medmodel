@@ -89,7 +89,7 @@ export function ViewerCs3dPage() {
           onSelect={(uid) => setSeriesUid(uid)}
         />
         <div className="relative flex min-h-0 min-w-0 flex-col bg-black">
-          <div className="flex h-9 items-center gap-2 border-b border-white/10 px-3 text-[11px] text-white/70">
+          <div className="flex h-9 items-center gap-2 border-b border-white/10 px-3 text-xs text-white/70">
             <span>滚轮切层 · 默认 CT 窗宽窗位</span>
             <span className="ml-auto tabular-nums">
               {seriesUid ? `${sliceCount} 帧` : '未选序列'}

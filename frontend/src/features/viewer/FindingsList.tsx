@@ -110,7 +110,7 @@ export function FindingsList({
   onReviewChange?: (id: string, status: FindingReviewStatus) => void
 }) {
   if (!findings.length) {
-    return <p className="text-[11px] text-muted">暂无 findings</p>
+    return <p className="text-xs text-muted">暂无 findings</p>
   }
 
   const selectable = typeof onToggleSelect === 'function'
@@ -125,7 +125,7 @@ export function FindingsList({
         {selectable && onSelectAll && (
           <button
             type="button"
-            className="text-[10px] text-muted hover:text-fg"
+            className="text-xs text-muted hover:text-fg"
             data-testid="findings-select-all"
             onClick={() => onSelectAll(allSelected ? [] : findings.map((f) => f.id))}
           >
@@ -183,11 +183,11 @@ export function FindingsList({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-xs text-fg">{f.label}</span>
-                  <span className="shrink-0 text-[10px] tabular-nums text-muted">
+                  <span className="shrink-0 text-xs tabular-nums text-muted">
                     {scoreCaption(f.scoreKind)} {formatPercent(f.score, 0)}
                   </span>
                 </div>
-                {f.meta && <div className="mt-0.5 text-[10px] text-muted">{f.meta}</div>}
+                {f.meta && <div className="mt-0.5 text-xs text-muted">{f.meta}</div>}
                 <Progress value={f.score} className="mt-1.5 h-1" />
               </button>
             </div>
@@ -220,7 +220,7 @@ export function FindingsList({
                   icon={<Pencil className="h-3 w-3" />}
                   tone="warning"
                 />
-                <span className="ml-auto text-[10px] text-muted">{REVIEW_LABEL[review]}</span>
+                <span className="ml-auto text-xs text-muted">{REVIEW_LABEL[review]}</span>
               </div>
             )}
           </div>
@@ -261,7 +261,7 @@ function ReviewButton({
       title={label}
       onClick={onClick}
       className={cn(
-        'inline-flex h-6 items-center gap-1 rounded border px-1.5 text-[10px] transition-colors',
+        'inline-flex h-6 items-center gap-1 rounded border px-1.5 text-xs transition-colors',
         toneClass,
         !active && 'opacity-70 hover:opacity-100',
       )}

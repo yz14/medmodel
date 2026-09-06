@@ -16,7 +16,7 @@ export function ThumbnailImg({
   if (failed) {
     return (
       <div
-        className={cn('flex items-center justify-center bg-surface-2 text-[10px] text-muted', className)}
+        className={cn('flex items-center justify-center bg-surface-2 text-xs text-muted', className)}
         role="img"
         aria-label={alt || '缩略图不可用'}
       >

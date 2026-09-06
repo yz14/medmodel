@@ -45,7 +45,7 @@ export function StageGantt({
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {STAGES.map((stage, i) => (
-          <div key={stage} className="text-[11px]">
+          <div key={stage} className="text-xs">
             <div
               className={cn(
                 'text-muted',

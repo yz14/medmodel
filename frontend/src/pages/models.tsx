@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from '@/components/ui/sonner'
 import { ModelCard } from '@/features/models/ModelCard'
 
 export function ModelsPage() {
@@ -17,10 +18,12 @@ export function ModelsPage() {
   const patchMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       api.patchModel(id, { enabled }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       void queryClient.invalidateQueries({ queryKey: ['models'] })
       void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success(vars.enabled ? '模型已启用' : '模型已停用')
     },
+    onError: (err) => toast.error((err as Error).message || '更新失败'),
   })
 
   return (

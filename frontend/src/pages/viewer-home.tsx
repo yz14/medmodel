@@ -6,10 +6,8 @@ import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { useUiStore } from '@/stores/ui-store'
 
 export function ViewerHomePage() {
-  const experimentalCs3d = useUiStore((s) => s.experimentalCs3d)
   const studies = useQuery({
     queryKey: ['studies', 'viewer-home'],
     queryFn: () => api.listStudies({ page: 1, page_size: 50 }),
@@ -40,7 +38,10 @@ export function ViewerHomePage() {
           title="暂无影像"
           description="请先在数据中心上传 DICOM 或生成演示数据"
           action={
-            <Link to="/data" className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm text-white">
+            <Link
+              to="/data"
+              className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm text-white"
+            >
               前往数据中心
             </Link>
           }
@@ -48,25 +49,16 @@ export function ViewerHomePage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {studies.data.items.map((s) => (
-            <div
+            <Link
               key={s.study_uid}
-              className="rounded-xl border border-border bg-surface-1 p-4 transition hover:border-brand"
+              to={`/viewer/${encodeURIComponent(s.study_uid)}`}
+              className="block rounded-xl border border-border bg-surface-1 p-4 transition hover:border-brand"
             >
-              <Link to={`/viewer/${encodeURIComponent(s.study_uid)}`} className="block">
-                <p className="font-medium text-fg-strong">{s.patient_name || '匿名'}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {s.modality || '—'} · {s.num_series} 序列 · {s.study_description || s.study_uid}
-                </p>
-              </Link>
-              {experimentalCs3d && (
-                <Link
-                  to={`/viewer-cs3d/${encodeURIComponent(s.study_uid)}`}
-                  className="mt-2 inline-block text-[11px] text-muted hover:text-brand"
-                >
-                  打开 CS3D Spike →
-                </Link>
-              )}
-            </div>
+              <p className="font-medium text-fg-strong">{s.patient_name || '匿名'}</p>
+              <p className="mt-1 text-xs text-muted">
+                {s.modality || '—'} · {s.num_series} 序列 · {s.study_description || s.study_uid}
+              </p>
+            </Link>
           ))}
         </div>
       )}

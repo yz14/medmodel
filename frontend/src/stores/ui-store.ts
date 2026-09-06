@@ -15,7 +15,7 @@ interface UiState {
   setExperimentalCs3d: (v: boolean) => void
 }
 
-function applyTheme(theme: Theme) {
+export function applyTheme(theme: Theme) {
   const root = document.documentElement
   root.classList.toggle('dark', theme === 'dark')
   root.classList.toggle('light', theme === 'light')

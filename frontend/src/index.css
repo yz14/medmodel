@@ -5,6 +5,11 @@
 @theme {
   --font-sans: "Noto Sans SC", "Inter", ui-sans-serif, system-ui, sans-serif;
 
+  /* FE-1 字号：正文 14 / 次要 13 / 最小 12 */
+  --text-body: 0.875rem;
+  --text-secondary: 0.8125rem;
+  --text-min: 0.75rem;
+
   --color-brand: #2e7cf6;
   --color-brand-hover: #4b91f7;
   --color-brand-muted: rgba(46, 124, 246, 0.15);
@@ -88,11 +93,17 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
+  font-size: var(--text-body);
   background: var(--color-surface-0);
   color: var(--color-fg);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.text-secondary {
+  font-size: var(--text-secondary);
+  line-height: 1.4;
 }
 
 a {

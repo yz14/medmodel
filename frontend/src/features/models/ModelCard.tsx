@@ -63,15 +63,15 @@ export function ModelCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="info">{TYPE_LABEL[model.task_type] ?? model.task_type}</Badge>
+          <Badge family="tag" variant="info">{TYPE_LABEL[model.task_type] ?? model.task_type}</Badge>
           {model.modalities.map((m) => (
-            <Badge key={m} variant="secondary">
+            <Badge key={m} family="tag" variant="secondary">
               {m}
             </Badge>
           ))}
         </div>
         <p className="line-clamp-3 flex-1 text-xs leading-relaxed text-muted">{model.description}</p>
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-muted">
+        <div className="grid grid-cols-2 gap-2 text-xs text-muted">
           <div>
             预期延迟
             <div className="text-sm text-fg tabular-nums">{formatMs(model.expected_latency_ms)}</div>

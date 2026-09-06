@@ -36,7 +36,7 @@ export function ViewportCorners({
   className?: string
 }) {
   const corner =
-    'pointer-events-none absolute text-[11px] leading-relaxed text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]'
+    'pointer-events-none absolute text-xs leading-relaxed text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]'
 
   return (
     <div className={cn('pointer-events-none absolute inset-0 z-20', className)}>

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { toast } from '@/components/ui/sonner'
 import { TaskLogsTimeline } from '@/features/tasks/TaskLogsTimeline'
 import { StageGantt } from '@/features/tasks/StageGantt'
 import { useTaskSSE } from '@/features/tasks/useTaskSSE'
@@ -42,15 +43,21 @@ export function TaskDetailPage() {
 
   const cancelMutation = useMutation({
     mutationFn: () => api.cancelTask(taskId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['task', taskId] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      toast.success('已取消任务')
+    },
+    onError: (err) => toast.error((err as Error).message || '取消失败'),
   })
 
   const retryMutation = useMutation({
     mutationFn: () => api.retryTask(taskId),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('已重新提交任务')
       navigate(`/tasks/${res.task_id}`)
     },
+    onError: (err) => toast.error((err as Error).message || '重试失败'),
   })
 
   if (task.isLoading) {
@@ -196,7 +203,7 @@ export function TaskDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <p className="text-muted">{result.data.summary}</p>
-                  <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-[11px] text-muted">
+                  <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-xs text-muted">
                     {JSON.stringify(result.data, null, 2)}
                   </pre>
                 </CardContent>
@@ -235,7 +242,7 @@ export function TaskDetailPage() {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm text-fg">{a.name}</div>
-                        <div className="text-[11px] text-muted">
+                        <div className="text-xs text-muted">
                           {a.media_type}
                           {a.size_bytes != null ? ` · ${(a.size_bytes / 1024).toFixed(1)} KB` : ''}
                         </div>
@@ -262,7 +269,7 @@ export function TaskDetailPage() {
               <CardTitle>推理参数</CardTitle>
             </CardHeader>
             <CardContent>
-              <pre className="overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-[11px] text-muted">
+              <pre className="overflow-auto rounded-lg border border-border bg-surface-0 p-3 text-xs text-muted">
                 {JSON.stringify(t.params ?? {}, null, 2)}
               </pre>
             </CardContent>

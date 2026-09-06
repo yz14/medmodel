@@ -115,7 +115,7 @@ export function Cs3dStackViewport({ seriesUid, sliceCount, className }: Props) {
   return (
     <div className={cn('relative min-h-0 flex-1 bg-black', className)} data-testid="cs3d-viewport">
       <div ref={elementRef} className="h-full w-full" onContextMenu={(e) => e.preventDefault()} />
-      <div className="pointer-events-none absolute bottom-2 left-2 max-w-[90%] rounded bg-black/60 px-2 py-1 text-[10px] text-white/80">
+      <div className="pointer-events-none absolute bottom-2 left-2 max-w-[90%] rounded bg-black/60 px-2 py-1 text-xs text-white/80">
         CS3D spike · {status === 'ready' ? `${sliceIndex + 1}/${sliceCount}` : status}
         {error ? ` · ${error}` : ''}
       </div>

@@ -42,7 +42,7 @@ export function SeriesList({
               <div className="mt-2 truncate text-xs font-medium text-fg-strong">
                 {s.description || `Series ${s.series_number ?? ''}`}
               </div>
-              <div className="mt-0.5 text-[10px] text-muted">
+              <div className="mt-0.5 text-xs text-muted">
                 {s.modality || '—'} · {s.num_instances} 帧
               </div>
             </button>

@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StudiesTable } from '@/features/data/StudiesTable'
 import { StudyDrawer } from '@/features/data/StudyDrawer'
@@ -75,17 +75,21 @@ export function DataPage() {
           />
         </div>
         <Select
-          className="w-36"
-          value={modality}
-          onChange={(e) => {
+          value={modality || '__all__'}
+          onValueChange={(v) => {
             setPage(1)
-            setModality(e.target.value)
+            setModality(v === '__all__' ? '' : v)
           }}
         >
-          <option value="">全部模态</option>
-          <option value="CT">CT</option>
-          <option value="MR">MR</option>
-          <option value="DR">DR</option>
+          <SelectTrigger className="w-36" aria-label="按模态筛选">
+            <SelectValue placeholder="全部模态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部模态</SelectItem>
+            <SelectItem value="CT">CT</SelectItem>
+            <SelectItem value="MR">MR</SelectItem>
+            <SelectItem value="DR">DR</SelectItem>
+          </SelectContent>
         </Select>
         <Button
           variant="outline"

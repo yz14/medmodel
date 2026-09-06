@@ -3,6 +3,7 @@ import { Download, FileText, Loader2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
+import { toast } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
 import type { ReportResponse } from '@/lib/api'
 import type { FindingReviewStatus } from '@/features/viewer/FindingsList'
@@ -39,7 +40,11 @@ export function ReportPanel({
         export_sr: exportSr,
         export_gsps: exportGsps,
       }),
-    onSuccess: setLast,
+    onSuccess: (res) => {
+      setLast(res)
+      toast.success('报告已生成')
+    },
+    onError: (err) => toast.error((err as Error).message || '生成报告失败'),
   })
 
   const canRun = findingIds.length > 0 && !mutation.isPending
@@ -53,13 +58,13 @@ export function ReportPanel({
           结构化报告
         </span>
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">
+      <p className="text-xs leading-relaxed text-muted">
         勾选 Findings 并审阅（接受/拒绝/修正）后生成中文报告；DICOM 仅导出已接受与已修正项。
       </p>
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted">导出 SEG（分割）</span>
+          <span className="text-xs text-muted">导出 SEG（分割）</span>
           <Switch
             checked={exportSeg}
             onCheckedChange={setExportSeg}
@@ -67,11 +72,11 @@ export function ReportPanel({
           />
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted">导出 SR（测量）</span>
+          <span className="text-xs text-muted">导出 SR（测量）</span>
           <Switch checked={exportSr} onCheckedChange={setExportSr} aria-label="导出 SR" />
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted">导出 GSPS（检出框）</span>
+          <span className="text-xs text-muted">导出 GSPS（检出框）</span>
           <Switch
             checked={exportGsps}
             onCheckedChange={setExportGsps}
@@ -98,7 +103,7 @@ export function ReportPanel({
       {last && (
         <div className="space-y-2">
           <pre
-            className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-1 p-2 text-[10px] leading-relaxed text-fg"
+            className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface-1 p-2 text-xs leading-relaxed text-fg"
             data-testid="report-text"
           >
             {last.text}
@@ -107,7 +112,7 @@ export function ReportPanel({
             {artifactLinks.map((a) => (
               <a
                 key={a.name}
-                className="flex items-center gap-1.5 text-[11px] text-brand hover:underline"
+                className="flex items-center gap-1.5 text-xs text-brand hover:underline"
                 href={a.url || api.artifactUrl(taskId, a.name)}
                 download={a.name}
               >

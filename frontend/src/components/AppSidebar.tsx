@@ -44,7 +44,7 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-fg-strong">VoxFlow</div>
-            <div className="truncate text-[10px] text-muted">医学影像 AI 模型平台</div>
+            <div className="truncate text-xs text-muted">医学影像 AI 模型平台</div>
           </div>
         )}
       </div>
@@ -70,7 +70,7 @@ export function AppSidebar() {
             {!collapsed && (
               <span className="flex-1 truncate">
                 {item.label}
-                {item.soon && <span className="ml-2 text-[10px] text-muted">即将推出</span>}
+                {item.soon && <span className="ml-2 text-xs text-muted">即将推出</span>}
               </span>
             )}
           </NavLink>

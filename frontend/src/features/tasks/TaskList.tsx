@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+﻿import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw, XCircle, Eye } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { toast } from '@/components/ui/sonner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { TaskSummary } from '@/types/api'
 
@@ -15,12 +16,20 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.cancelTask(id),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('已取消任务')
+    },
+    onError: (err) => toast.error((err as Error).message || '取消失败'),
   })
 
   const retryMutation = useMutation({
     mutationFn: (id: string) => api.retryTask(id),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('已重新提交任务')
+    },
+    onError: (err) => toast.error((err as Error).message || '重试失败'),
   })
 
   return (
@@ -53,7 +62,7 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
                   >
                     {shortUid(task.task_id, 10, 4)}
                   </Link>
-                  <div className="mt-0.5 text-[10px] text-muted">
+                  <div className="mt-0.5 text-xs text-muted">
                     series {shortUid(task.series_uid)}
                   </div>
                 </TableCell>
@@ -62,12 +71,13 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={task.status} />
                     {task.cache_hit && (
-                      <Badge variant="secondary" className="font-normal">
+                      <Badge family="tag" variant="secondary" className="font-normal">
                         缓存
                       </Badge>
                     )}
                     {task.error_code && (
                       <Badge
+                        family="status"
                         variant="danger"
                         className="max-w-[9rem] truncate font-mono font-normal"
                         title={task.error_message || task.error_code}
@@ -79,7 +89,7 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
                   </div>
                   {task.error_message && (
                     <div
-                      className="mt-1 line-clamp-2 max-w-[14rem] text-[10px] text-danger/90"
+                      className="mt-1 line-clamp-2 max-w-[14rem] text-xs text-danger/90"
                       title={task.error_message}
                     >
                       {task.error_message}
@@ -89,7 +99,7 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
                 <TableCell className="min-w-36">
                   <div className="space-y-1">
                     <Progress value={task.progress} />
-                    <div className="text-[10px] text-muted">
+                    <div className="text-xs text-muted">
                       {formatPercent(task.progress, 0)} · {task.stage || '—'}
                     </div>
                   </div>

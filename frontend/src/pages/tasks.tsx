@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TaskList } from '@/features/tasks/TaskList'
 
@@ -81,37 +81,42 @@ export function TasksPage() {
           搜索
         </Button>
         <Select
-          className="w-40"
-          value={status}
-          aria-label="按状态筛选"
-          onChange={(e) => {
+          value={status || '__all__'}
+          onValueChange={(v) => {
             setPage(1)
-            setStatus(e.target.value)
+            setStatus(v === '__all__' ? '' : v)
           }}
         >
-          <option value="">全部状态</option>
-          <option value="queued">排队中</option>
-          <option value="running">运行中</option>
-          <option value="succeeded">成功</option>
-          <option value="failed">失败</option>
-          <option value="canceled">已取消</option>
+          <SelectTrigger className="w-40" aria-label="按状态筛选">
+            <SelectValue placeholder="全部状态" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部状态</SelectItem>
+            <SelectItem value="queued">排队中</SelectItem>
+            <SelectItem value="running">运行中</SelectItem>
+            <SelectItem value="succeeded">成功</SelectItem>
+            <SelectItem value="failed">失败</SelectItem>
+            <SelectItem value="canceled">已取消</SelectItem>
+          </SelectContent>
         </Select>
         <Select
-          className="w-44"
-          value={modelId}
-          aria-label="按模型筛选"
-          data-testid="tasks-model-filter"
-          onChange={(e) => {
+          value={modelId || '__all__'}
+          onValueChange={(v) => {
             setPage(1)
-            setModelId(e.target.value)
+            setModelId(v === '__all__' ? '' : v)
           }}
         >
-          <option value="">全部模型</option>
-          {modelOptions.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
+          <SelectTrigger className="w-44" aria-label="按模型筛选" data-testid="tasks-model-filter">
+            <SelectValue placeholder="全部模型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">全部模型</SelectItem>
+            {modelOptions.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                {m.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 

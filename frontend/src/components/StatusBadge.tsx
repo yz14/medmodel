@@ -17,5 +17,5 @@ export function StatusBadge({ status }: { status: string }) {
     label: status,
     variant: 'secondary' as const,
   }
-  return <Badge variant={meta.variant}>{meta.label}</Badge>
+  return <Badge family="status" variant={meta.variant}>{meta.label}</Badge>
 }

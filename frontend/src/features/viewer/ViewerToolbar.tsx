@@ -14,7 +14,14 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Slider } from '@/components/ui/slider'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { WINDOW_PRESETS, relativeZoom, zoomAt } from '@/features/viewer/core'
 import { useViewerStore, type ViewerTool } from '@/stores/viewer-store'
 import { cn } from '@/lib/utils'
@@ -74,76 +81,76 @@ export function ViewerToolbar({
         {TOOLS.map((t) => {
           const Icon = t.icon
           return (
-            <Button
-              key={t.id}
-              variant={tool === t.id ? 'secondary' : 'ghost'}
-              size="icon"
-              title={t.hint}
-              aria-label={t.label}
-              className={cn('h-8 w-8', tool === t.id && 'bg-brand/15 text-brand')}
-              onClick={() => setTool(t.id)}
-            >
-              <Icon className="h-4 w-4" />
-            </Button>
+            <Tooltip key={t.id}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={tool === t.id ? 'secondary' : 'ghost'}
+                  size="icon"
+                  aria-label={t.label}
+                  className={cn('h-8 w-8', tool === t.id && 'bg-brand/15 text-brand')}
+                  onClick={() => setTool(t.id)}
+                >
+                  <Icon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t.hint}</TooltipContent>
+            </Tooltip>
           )
         })}
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-muted">层</span>
+        <span className="text-xs text-muted">层</span>
         <Slider
           className="w-28"
           min={0}
           max={Math.max(sliceCount - 1, 0)}
-          value={sliceIndex}
-          onChange={(e) => setSliceIndex(Number(e.target.value))}
+          step={1}
+          value={[sliceIndex]}
+          onValueChange={([v]) => setSliceIndex(v ?? 0)}
           aria-label="切片"
         />
-        <span className="w-14 text-right text-[11px] tabular-nums text-fg">
+        <span className="w-14 text-right text-xs tabular-nums text-fg">
           {sliceCount ? `${sliceIndex + 1}/${sliceCount}` : '—'}
         </span>
       </div>
 
-      <label className="hidden items-center gap-1.5 text-[11px] text-muted lg:flex">
-        <span className="sr-only">窗宽窗位预设</span>
-        <select
-          className="h-8 max-w-[7.5rem] rounded-md border border-border bg-surface-0 px-2 text-xs text-fg"
-          aria-label="窗宽窗位预设"
-          value=""
-          onChange={(e) => {
-            const preset = WINDOW_PRESETS.find((p) => p.id === e.target.value)
-            if (preset) setWindow(preset.ww, preset.wc)
-            e.currentTarget.value = ''
-          }}
-        >
-          <option value="" disabled>
-            窗位预设
-          </option>
-          {WINDOW_PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label} ({p.ww}/{p.wc})
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="hidden items-center gap-1.5 lg:flex">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 max-w-[7.5rem]" aria-label="窗宽窗位预设">
+              窗位预设
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {WINDOW_PRESETS.map((p) => (
+              <DropdownMenuItem key={p.id} onSelect={() => setWindow(p.ww, p.wc)}>
+                {p.label} ({p.ww}/{p.wc})
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <div className="hidden items-center gap-2 xl:flex">
-        <span className="text-[11px] text-muted">W</span>
+        <span className="text-xs text-muted">W</span>
         <Slider
           className="w-20"
           min={1}
           max={4000}
-          value={windowWidth}
-          onChange={(e) => setWindow(Number(e.target.value), windowCenter)}
+          step={1}
+          value={[windowWidth]}
+          onValueChange={([v]) => setWindow(v ?? windowWidth, windowCenter)}
           aria-label="窗宽"
         />
-        <span className="text-[11px] text-muted">L</span>
+        <span className="text-xs text-muted">L</span>
         <Slider
           className="w-20"
           min={-1000}
           max={1000}
-          value={windowCenter}
-          onChange={(e) => setWindow(windowWidth, Number(e.target.value))}
+          step={1}
+          value={[windowCenter]}
+          onValueChange={([v]) => setWindow(windowWidth, v ?? windowCenter)}
           aria-label="窗位"
         />
       </div>
@@ -158,7 +165,7 @@ export function ViewerToolbar({
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <span className="hidden w-10 text-center text-[10px] tabular-nums text-muted sm:inline">
+        <span className="hidden w-10 text-center text-xs tabular-nums text-muted sm:inline">
           {(zoomPct * 100).toFixed(0)}%
         </span>
         <Button
