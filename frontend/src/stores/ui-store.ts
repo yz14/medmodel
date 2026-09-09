@@ -8,6 +8,11 @@ export type WindowPresetId = 'lung' | 'mediastinum' | 'bone' | 'brain' | 'abdome
 
 interface UiState {
   sidebarCollapsed: boolean
+  /**
+   * Non-persisted: while true, App chrome forces collapsed sidebar for viewer pages
+   * without writing sidebarCollapsed to localStorage (#6).
+   */
+  viewerShellActive: boolean
   theme: Theme
   /** FE-5: interface language preference (terms currently zh-first). */
   locale: UiLocale
@@ -19,6 +24,7 @@ interface UiState {
   experimentalCs3d: boolean
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
+  setViewerShellActive: (v: boolean) => void
   setTheme: (theme: Theme) => void
   toggleTheme: () => void
   setLocale: (locale: UiLocale) => void
@@ -37,6 +43,7 @@ export const useUiStore = create<UiState>()(
   persist(
     (set, get) => ({
       sidebarCollapsed: false,
+      viewerShellActive: false,
       theme: 'dark',
       locale: 'zh',
       defaultWindowPreset: 'lung',
@@ -44,6 +51,7 @@ export const useUiStore = create<UiState>()(
       experimentalCs3d: false,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+      setViewerShellActive: (v) => set({ viewerShellActive: v }),
       setTheme: (theme) => {
         applyTheme(theme)
         set({ theme })
@@ -60,6 +68,14 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'voxflow-ui',
+      partialize: (state) => ({
+        sidebarCollapsed: state.sidebarCollapsed,
+        theme: state.theme,
+        locale: state.locale,
+        defaultWindowPreset: state.defaultWindowPreset,
+        defaultViewportLayout: state.defaultViewportLayout,
+        experimentalCs3d: state.experimentalCs3d,
+      }),
       onRehydrateStorage: () => (state) => {
         applyTheme(state?.theme ?? 'dark')
       },

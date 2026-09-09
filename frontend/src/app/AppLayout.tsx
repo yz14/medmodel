@@ -19,7 +19,7 @@ function PageFallback() {
 export function AppLayout() {
   const location = useLocation()
   const theme = useUiStore((s) => s.theme)
-  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed)
+  const setViewerShellActive = useUiStore((s) => s.setViewerShellActive)
   const isViewer =
     location.pathname.startsWith('/viewer/') || location.pathname.startsWith('/viewer-cs3d/')
 
@@ -32,13 +32,11 @@ export function AppLayout() {
     applyTheme(theme)
   }, [isViewer, theme])
 
-  // 阅片页自动收起 App 侧栏为图标栏；离开时恢复进入前状态
+  // #6: force collapsed chrome via non-persisted flag — never write sidebarCollapsed
   useEffect(() => {
-    if (!isViewer) return
-    const prevCollapsed = useUiStore.getState().sidebarCollapsed
-    setSidebarCollapsed(true)
-    return () => setSidebarCollapsed(prevCollapsed)
-  }, [isViewer, setSidebarCollapsed])
+    setViewerShellActive(isViewer)
+    return () => setViewerShellActive(false)
+  }, [isViewer, setViewerShellActive])
 
   return (
     <div className={cn('flex h-full min-h-0 bg-surface-0', isViewer && 'dark')}>

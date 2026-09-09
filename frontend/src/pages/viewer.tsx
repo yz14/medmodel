@@ -14,6 +14,7 @@ import {
 import { SeriesList } from '@/features/viewer/SeriesList'
 import { ViewerToolbar } from '@/features/viewer/ViewerToolbar'
 import { ViewportGrid } from '@/features/viewer/ViewportGrid'
+import { SliceScrollbar } from '@/features/viewer/SliceScrollbar'
 import { AiPanel } from '@/features/viewer/AiPanel'
 import { WINDOW_PRESETS } from '@/features/viewer/core'
 import { useUiStore } from '@/stores/ui-store'
@@ -189,7 +190,7 @@ export function ViewerPage() {
 
       <div className="flex min-h-0 flex-1">
         {leftOpen && (
-          <div className="hidden w-[200px] shrink-0 lg:block">
+          <div className="hidden w-[232px] shrink-0 lg:block">
             <SeriesList
               series={study.series ?? []}
               activeUid={seriesUid}
@@ -201,22 +202,18 @@ export function ViewerPage() {
         <ResizablePanelGroup direction="horizontal" className="min-h-0 min-w-0 flex-1">
           <ResizablePanel defaultSize={rightOpen ? 72 : 100} minSize={40} order={1}>
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-              <ViewerToolbar
-                sliceCount={sliceCount}
-                patientLabel={
-                  activeSeries
-                    ? `${activeSeries.modality || 'OT'} · ${activeSeries.description || activeSeries.series_uid.slice(-12)}`
-                    : undefined
-                }
-              />
+              <ViewerToolbar sliceCount={sliceCount} />
               {seriesUid && sliceCount > 0 ? (
-                <ViewportGrid
-                  seriesUid={seriesUid}
-                  sliceCount={sliceCount}
-                  meta={viewportMeta}
-                  spacing={activeSeries?.spacing}
-                  className="flex-1"
-                />
+                <div className="flex min-h-0 flex-1">
+                  <ViewportGrid
+                    seriesUid={seriesUid}
+                    sliceCount={sliceCount}
+                    meta={viewportMeta}
+                    spacing={activeSeries?.spacing}
+                    className="flex-1"
+                  />
+                  <SliceScrollbar sliceCount={sliceCount} />
+                </div>
               ) : (
                 <div className="flex flex-1 items-center justify-center bg-black text-sm text-white/60">
                   {instancesQuery.isLoading ? '加载序列…' : '请选择序列'}

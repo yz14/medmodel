@@ -22,7 +22,9 @@ const NAV = [
 ]
 
 export function AppSidebar() {
-  const collapsed = useUiStore((s) => s.sidebarCollapsed)
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed)
+  const viewerShellActive = useUiStore((s) => s.viewerShellActive)
+  const collapsed = viewerShellActive || sidebarCollapsed
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
 
   return (
@@ -73,6 +75,8 @@ export function AppSidebar() {
           size={collapsed ? 'icon' : 'sm'}
           className={cn('w-full', !collapsed && 'justify-start')}
           onClick={toggleSidebar}
+          disabled={viewerShellActive}
+          title={viewerShellActive ? '阅片模式下侧栏已收起' : undefined}
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           {!collapsed && '收起侧栏'}

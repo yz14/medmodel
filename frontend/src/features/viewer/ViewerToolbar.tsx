@@ -7,8 +7,8 @@ import {
   Grid2x2,
   Hand,
   LayoutGrid,
-  Layers,
   Maximize2,
+  MoreHorizontal,
   MoveHorizontal,
   Ratio,
   RectangleVertical,
@@ -20,16 +20,20 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
-import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { WINDOW_PRESETS, relativeZoom, zoomAt } from '@/features/viewer/core'
 import { useViewerStore, type ViewerTool, type ViewportLayout } from '@/stores/viewer-store'
@@ -41,7 +45,7 @@ const TOOLS: Array<{ id: ViewerTool; label: string; icon: typeof Hand; hint: str
   { id: 'pan', label: '平移', icon: Hand, hint: '3 · 拖动 / 中键' },
   { id: 'length', label: '测距', icon: Ruler, hint: '4 · 两点测距' },
   { id: 'zoom', label: '缩放', icon: MoveHorizontal, hint: '5 · Ctrl+滚轮 / 拖动' },
-  { id: 'probe', label: '探针', icon: Crosshair, hint: '6 · HU 探针' },
+  { id: 'probe', label: '探针', icon: Crosshair, hint: '6 · 像素探针' },
 ]
 
 function ToolBtn({
@@ -76,15 +80,58 @@ function ToolBtn({
   )
 }
 
-export function ViewerToolbar({
-  sliceCount,
-  patientLabel,
-}: {
-  sliceCount: number
-  patientLabel?: string
-}) {
+/** Editable "current / total" slice field for precise CT navigation (#5). */
+function SliceInput({ sliceCount }: { sliceCount: number }) {
   const sliceIndex = useViewerStore((s) => s.sliceIndex)
   const setSliceIndex = useViewerStore((s) => s.setSliceIndex)
+  const [draft, setDraft] = useState(String(sliceIndex + 1))
+
+  useEffect(() => {
+    setDraft(String(sliceIndex + 1))
+  }, [sliceIndex])
+
+  const commit = () => {
+    if (!sliceCount) return
+    const n = Number.parseInt(draft.replace(/\D/g, ''), 10)
+    if (!Number.isFinite(n)) {
+      setDraft(String(sliceIndex + 1))
+      return
+    }
+    setSliceIndex(Math.max(0, Math.min(sliceCount - 1, n - 1)))
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1" aria-label="层导航">
+      <input
+        type="text"
+        inputMode="numeric"
+        aria-label="当前层号"
+        disabled={!sliceCount}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+            ;(e.target as HTMLInputElement).blur()
+          }
+          if (e.key === 'Escape') {
+            setDraft(String(sliceIndex + 1))
+            ;(e.target as HTMLInputElement).blur()
+          }
+        }}
+        className="h-7 w-10 rounded-md border border-border bg-surface-0 px-1 text-center text-xs tabular-nums text-fg outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50"
+      />
+      <span className="text-xs text-muted">/</span>
+      <span className="min-w-[1.75rem] text-xs tabular-nums text-muted">
+        {sliceCount || '—'}
+      </span>
+    </div>
+  )
+}
+
+export function ViewerToolbar({ sliceCount }: { sliceCount: number }) {
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
   const setWindow = useViewerStore((s) => s.setWindow)
@@ -111,6 +158,8 @@ export function ViewerToolbar({
   const setViewportLayout = useViewerStore((s) => s.setViewportLayout)
 
   const zoomPct = relativeZoom(camera, fitScale || camera.scale)
+  const activePreset =
+    WINDOW_PRESETS.find((p) => p.ww === windowWidth && p.wc === windowCenter)?.label ?? '自定义'
 
   const zoomAboutCenter = (factor: number) => {
     const stage = document.querySelector('[data-testid="stack-viewport"]')
@@ -123,12 +172,8 @@ export function ViewerToolbar({
   }
 
   return (
-    <div className="flex h-12 items-center gap-1.5 overflow-x-auto border-b border-border bg-surface-1 px-3">
-      <div className="min-w-0 max-w-[10rem] shrink truncate text-xs text-muted xl:max-w-[14rem]">
-        {patientLabel}
-      </div>
-
-      {/* Tools */}
+    <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border bg-surface-1 px-2">
+      {/* Primary tools — always visible */}
       <div
         className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
         role="group"
@@ -150,189 +195,145 @@ export function ViewerToolbar({
         })}
       </div>
 
-      <Separator orientation="vertical" className="mx-0.5 hidden h-6 sm:block" />
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
 
-      {/* Slice nav */}
-      <div className="flex shrink-0 items-center gap-2" aria-label="层导航">
-        <span className="text-xs text-muted">层</span>
-        <Slider
-          className="w-24 sm:w-28"
-          min={0}
-          max={Math.max(sliceCount - 1, 0)}
-          step={1}
-          value={[sliceIndex]}
-          onValueChange={([v]) => setSliceIndex(v ?? 0)}
-          aria-label="切片"
-        />
-        <span className="w-14 text-right text-xs tabular-nums text-fg">
-          {sliceCount ? `${sliceIndex + 1}/${sliceCount}` : '—'}
-        </span>
-      </div>
+      <SliceInput sliceCount={sliceCount} />
 
-      <Separator orientation="vertical" className="mx-0.5 hidden h-6 md:block" />
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
 
-      {/* View */}
-      <div
-        className="flex shrink-0 items-center gap-0.5"
-        role="group"
-        aria-label="视图"
-      >
-        <div className="hidden items-center gap-1.5 lg:flex">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 max-w-[7.5rem]"
-                aria-label="窗宽窗位预设"
-              >
-                窗位预设
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {WINDOW_PRESETS.map((p) => (
-                <DropdownMenuItem key={p.id} onSelect={() => setWindow(p.ww, p.wc)}>
-                  {p.label} ({p.ww}/{p.wc})
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      {/* W/L preset (no sliders — right-drag + corners cover continuous adjust) */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 max-w-[7rem] shrink-0 gap-1 px-2 text-xs"
+            aria-label="窗宽窗位预设"
+          >
+            <Contrast className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{activePreset}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuLabel>窗宽窗位预设</DropdownMenuLabel>
+          {WINDOW_PRESETS.map((p) => (
+            <DropdownMenuItem key={p.id} onSelect={() => setWindow(p.ww, p.wc)}>
+              {p.label}
+              <span className="ml-auto text-xs text-muted">
+                {p.ww}/{p.wc}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        <div className="hidden items-center gap-2 xl:flex">
-          <span className="text-xs text-muted">W</span>
-          <Slider
-            className="w-20"
-            min={1}
-            max={4000}
-            step={1}
-            value={[windowWidth]}
-            onValueChange={([v]) => setWindow(v ?? windowWidth, windowCenter)}
-            aria-label="窗宽"
-          />
-          <span className="text-xs text-muted">L</span>
-          <Slider
-            className="w-20"
-            min={-1000}
-            max={1000}
-            step={1}
-            value={[windowCenter]}
-            onValueChange={([v]) => setWindow(windowWidth, v ?? windowCenter)}
-            aria-label="窗位"
-          />
-        </div>
-
+      <div className="flex shrink-0 items-center gap-0.5">
         <ToolBtn label="缩小" onClick={() => zoomAboutCenter(0.9)}>
           <ZoomOut className="h-4 w-4" />
         </ToolBtn>
-        <span className="hidden w-10 text-center text-xs tabular-nums text-muted sm:inline">
+        <span className="w-9 text-center text-xs tabular-nums text-muted">
           {(zoomPct * 100).toFixed(0)}%
         </span>
         <ToolBtn label="放大" onClick={() => zoomAboutCenter(1.1)}>
           <ZoomIn className="h-4 w-4" />
         </ToolBtn>
-        <ToolBtn
-          label="适应窗口"
-          hint="适应窗口 (F)"
-          onClick={() => window.dispatchEvent(new Event('voxflow:viewer-fit'))}
-        >
-          <Maximize2 className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn
-          label="1比1"
-          hint="1:1 像素"
-          onClick={() => window.dispatchEvent(new Event('voxflow:viewer-1to1'))}
-        >
-          <Ratio className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn label="水平翻转" hint="水平翻转 (H)" active={flipH} onClick={() => toggleFlipH()}>
-          <FlipHorizontal2 className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn label="垂直翻转" hint="垂直翻转 (V)" active={flipV} onClick={() => toggleFlipV()}>
-          <FlipVertical2 className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn label="反色" hint="反色 (I)" active={invert} onClick={() => setInvert(!invert)}>
-          <SunMoon className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn
-          label="重置"
-          hint="重置视图 (R)"
-          onClick={() => {
-            resetViewTransform()
-            clearMeasurements()
-            window.dispatchEvent(new Event('voxflow:viewer-reset-camera'))
-          }}
-        >
-          <RotateCcw className="h-4 w-4" />
-        </ToolBtn>
       </div>
 
-      <Separator orientation="vertical" className="mx-0.5 hidden h-6 lg:block" />
+      <div className="flex-1" />
 
-      {/* Hanging protocol / layout */}
-      <div
-        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
-        role="group"
-        aria-label="视口布局"
-      >
-        {(
-          [
-            { id: '1x1' as ViewportLayout, label: '单视口', icon: RectangleVertical },
-            { id: '1x2' as ViewportLayout, label: '1×2', icon: LayoutGrid },
-            { id: '2x2' as ViewportLayout, label: '2×2', icon: Grid2x2 },
-          ] as const
-        ).map((item) => {
-          const Icon = item.icon
-          return (
-            <ToolBtn
-              key={item.id}
-              label={item.label}
-              hint={`挂片布局 ${item.label}`}
-              active={viewportLayout === item.id}
-              onClick={() => setViewportLayout(item.id)}
-            >
-              <Icon className="h-4 w-4" />
-            </ToolBtn>
-          )
-        })}
-      </div>
+      {/* Overflow: view ops / layout / layers (#1) */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="更多视图选项">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuLabel>视图</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => window.dispatchEvent(new Event('voxflow:viewer-fit'))}>
+            <Maximize2 className="mr-2 h-4 w-4" />
+            适应窗口
+            <span className="ml-auto text-xs text-muted">F</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => window.dispatchEvent(new Event('voxflow:viewer-1to1'))}>
+            <Ratio className="mr-2 h-4 w-4" />
+            1:1 像素
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => toggleFlipH()}
+            className={cn(flipH && 'text-brand')}
+          >
+            <FlipHorizontal2 className="mr-2 h-4 w-4" />
+            水平翻转
+            <span className="ml-auto text-xs text-muted">H</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => toggleFlipV()}
+            className={cn(flipV && 'text-brand')}
+          >
+            <FlipVertical2 className="mr-2 h-4 w-4" />
+            垂直翻转
+            <span className="ml-auto text-xs text-muted">V</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => setInvert(!invert)}
+            className={cn(invert && 'text-brand')}
+          >
+            <SunMoon className="mr-2 h-4 w-4" />
+            反色
+            <span className="ml-auto text-xs text-muted">I</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              resetViewTransform()
+              clearMeasurements()
+              window.dispatchEvent(new Event('voxflow:viewer-reset-camera'))
+            }}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            重置视图
+            <span className="ml-auto text-xs text-muted">R</span>
+          </DropdownMenuItem>
 
-      <Separator orientation="vertical" className="mx-0.5 hidden h-6 lg:block" />
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>挂片布局</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={viewportLayout}
+            onValueChange={(v) => setViewportLayout(v as ViewportLayout)}
+          >
+            <DropdownMenuRadioItem value="1x1">
+              <RectangleVertical className="mr-2 h-4 w-4" />
+              单视口
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="1x2">
+              <LayoutGrid className="mr-2 h-4 w-4" />
+              1×2
+            </DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="2x2">
+              <Grid2x2 className="mr-2 h-4 w-4" />
+              2×2
+            </DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
 
-      {/* Layers */}
-      <div
-        className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-surface-0 p-0.5"
-        role="group"
-        aria-label="图层"
-      >
-        <span className="hidden px-1.5 text-xs text-muted sm:inline">
-          <Layers className="inline h-3.5 w-3.5" />
-        </span>
-        <ToolBtn
-          label="分割掩膜"
-          hint="显示 / 隐藏分割掩膜"
-          active={showMasks}
-          onClick={() => setShowMasks(!showMasks)}
-        >
-          <Scan className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn
-          label="检测框"
-          hint="显示 / 隐藏检测框"
-          active={showBoxes}
-          onClick={() => setShowBoxes(!showBoxes)}
-        >
-          <BoxSelect className="h-4 w-4" />
-        </ToolBtn>
-        <ToolBtn
-          label="测量"
-          hint="显示 / 隐藏测距标注"
-          active={showAnnotations}
-          onClick={() => setShowAnnotations(!showAnnotations)}
-        >
-          <Ruler className="h-4 w-4" />
-        </ToolBtn>
-      </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>图层</DropdownMenuLabel>
+          <DropdownMenuCheckboxItem checked={showMasks} onCheckedChange={(v) => setShowMasks(!!v)}>
+            <Scan className="mr-2 h-4 w-4" />
+            分割掩膜
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={showBoxes} onCheckedChange={(v) => setShowBoxes(!!v)}>
+            <BoxSelect className="mr-2 h-4 w-4" />
+            检测框
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={showAnnotations}
+            onCheckedChange={(v) => setShowAnnotations(!!v)}
+          >
+            <Ruler className="mr-2 h-4 w-4" />
+            测距标注
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }

@@ -14,9 +14,9 @@ frontend/dist/
 *.log
 npm-debug.log*
 
-# Data / storage
-data/
-storage/
+# Data / storage (repo-root only — do not ignore frontend/src/features/data/)
+/data/
+/storage/
 *.db
 *.db-journal
 *.db-wal
