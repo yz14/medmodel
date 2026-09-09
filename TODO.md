@@ -162,6 +162,99 @@
 
 审查结果（不说废话，只写有用信息）：
 
+> 审查日期 2026-09-07。方法：通读 `frontend/src` 全部页面/组件/样式 + 实跑前后端，Playwright 在 1440×900 / 1280×720 / 1024×768 下截取全部页面（深/浅色）、阅片器（CT/MR/DX、检测/分割结果、2×2、404）共 39 张。
+> 参照基准：OHIF v3 / 3D Slicer（阅片交互与叠加规范）、Linear / Vercel Dashboard / shadcn 官方站（信息密度与层级）、Radiology 阅片器通用约定（四角信息、标签屏幕空间、掩膜半透明+轮廓）。
+> 严重度：V0 = 第一印象即"坏/假/不可用"；V1 = 明显不专业或误导；V2 = 一致性/细节；V3 = 建议。
+> 总体判断：**管理端（总览/数据/模型/任务/设置）骨架合格但"模板感"重、信息密度低、可推倒重排；阅片器是产品第一印象却是最弱一环，建议整页重做**（布局、工具栏、叠加渲染、右侧 AI 面板全部重构，而非微调）。
+
+### A. V0 —— 打开就看得见的问题
+
+1. **阅片工具栏在 1440 宽下就溢出、半数工具不可见**（`ViewerToolbar.tsx:126` `overflow-x-auto`）。1440×900 只看到到"放大"，适应窗口 / 1:1 / 翻转 / 反色 / 重置 / 布局 / 图层全部被截断，需要在工具栏里横向滚动才能点到；1024 下更甚。这是院内最常见分辩率。
+   重做：工具栏按优先级分组收纳——常用 6 工具 + 层导航 + 预设常驻；视图操作收进 `···` 溢出菜单（`DropdownMenu`）或第二行；W/L 双滑块从工具栏移除（右键拖拽 + 预设 + 角标已足够，OHIF 亦不放滑块）。
+2. **MR / DX 打开为整屏纯白**（`viewer.tsx:77-81` 强制应用设置里的 CT 肺窗；`StackViewport.tsx:124-130` 只在恰好等于 1500/-600 时播种 DICOM W/L，且 DICOM 无 W/L 时无兜底）。同时四角白字压在白图上不可读，`Thk: 1.25 mm` 出现在 DX 上，"HU 探针"对 MR 有效。
+   重做：W/L 初始化顺序 = DICOM WindowCenter/Width → 按模态默认（MR/DX 用像素 min/max 或 1%–99% 分位自动窗）→ 用户偏好仅对 CT 生效；角标按模态裁剪字段（DX 无层厚/层数，MR 无 HU）。
+3. **检出框标签随缩放放大，遮挡病灶**（`StackViewport.tsx:588-596` 文字/线宽写在图像坐标 SVG 内，`fontSize = width/40` 再乘相机缩放；截图中 "Nodule 90%" 占视口 1/5）。测距文字同理。
+   重做：叠加层拆为两层——几何（图像坐标 SVG）与标注文字/线宽（屏幕坐标层，用 `imageToScreen` 反算位置），标签用 11–12px 带半透明底色的 chip，放框外角。
+4. **2×2 / 1×2 挂片 = 同一序列复制 4 份、同层同 W/L 联动**（`ViewportGrid.tsx` 所有格子共用 store）。用户看到 4 张一样的图，属于"看得见的假"；小格内四角文字互相重叠。
+   重做：要么每格独立 state（各自 series/slice/W/L，拖拽序列缩略图到格子），要么在只有 1 个序列时禁用多视口按钮。角标在格子高度 < 300px 时降级为只显示 `Im`/`W/L`。
+5. **切片导航是 96px 的 `Slider`**（`ViewerToolbar.tsx:158`），400 层 CT 每像素 4 层，无法精确定位；无 findings 层位标记。
+   重做：视口右侧竖向层位条（OHIF 风格），带 findings 刻度（检出层高亮色点）+ 当前层号；工具栏只保留 `n/N` 可编辑输入框。
+6. **阅片页离开时若刷新/关标签，App 侧栏永久变成收起状态**（`AppLayout.tsx:36-41` 依赖 effect cleanup 恢复，但 `sidebarCollapsed` 被 zustand `persist` 落盘；整页刷新无 cleanup）。截图证实：任何先进阅片再 `goto` 其它页的会话侧栏都是收起的。
+   修复：阅片页不写持久化字段，用一个非持久化 `viewerMode` 覆盖显示；或 `partialize` 排除它。
+7. **总览首屏"模型类型分布"饼图的样本量是 4 个模型**（分割 2 / 检测 1 / 分类 1），为了有图而有图；深色下 recharts 默认白色描边把环切成白线。`Legend` 未走主题色。
+   重做：去掉饼图；该位置换成"今日队列/并发利用率"或"模型健康（ready/禁用/失败率）"卡；全部 recharts 元素显式传 `stroke="var(--surface-1)"` 与 `Legend` 自定义渲染。
+8. **视口白底区域上的浅色叠字不可读**：比例尺 "25 mm"、`W/L` 角标在 CT 检查床/体部白区、MR/DX 白图上几乎消失（`ViewportCorners.tsx:38` 与 `StackViewport.tsx:631` 只有 `drop-shadow`）。比例尺固定放在底部中央、正压在图像内容上。
+   修复：角标与比例尺加 `bg-black/45 backdrop-blur-[2px] px-1.5 rounded` 底板，或改用 1px 黑描边字（`paint-order: stroke`）；比例尺移到右下角 `Im` 上方。
+
+### B. V1 —— 不专业 / 误导
+
+9. **原始 DICOM 值直出**：患者名 `Zhang^Wei`（PN 分隔符）、性别 `O`、年龄 `045Y`、`lung_seg`/`nodule_cls`（模型 id 而非名称，数据中心 AI 状态列、任务列表、任务详情副标题）、阶段 `done`（任务列表/详情，`stageLabel()` 已存在却未用）、`segmentation`（AiPanel 模型下拉拼接 task_type 原值）。全部要走 `formatPatientName / formatSex / formatAge / stageLabel / taskTypeLabel`。
+10. **模型描述泄露研发内话**："假肺分割（无硬编码椭圆）"、"确定性伪分类"、"phantom 预埋结节"直接出现在模型仓库卡片与阅片面板（来源 `models_hub/*/__init__.py` `description`）。面向医院的文案必须是能力描述；调试说明放 `tags`/内部字段。
+11. **任务列表每行都有 100% 满格进度条 + "done"**，20 行蓝条噪音；进度条只应对 `queued/running` 显示，完成态显示耗时/结果摘要。同页无患者/检查信息，只有 `series 1.2.826…`，放射科用户无法关联到病人。任务详情标题是 `任务 0eaaa32a1c19…` 哈希——应为"患者 · 模型 · 时间"，task_id 放次级 mono。
+12. **AiPanel 无兼容模型时仍默认选中不兼容模型并展示其 HU 参数**（`AiPanel.tsx:87-90` 回退 `models[0]`；MR/DX 截图里显示"肺实质分割（不支持…）"+ HU 上下限）。应显示"当前 MR 序列暂无适用模型"空态并隐藏参数表。控制台还有 `Select is changing from uncontrolled to controlled`（`value={selected?.id}` 初始 undefined）。
+13. **Toast 位置与阅片右面板冲突**（`providers.tsx:1256` 全局 `top-right`）："已创建推理任务"精准盖住 分析/检出/图层/报告 四个 tab。阅片页应 `bottom-center` 或 `bottom-left`，且成功类提示时长 ≤ 2s。
+14. **数据中心操作列三个按钮语义重叠**：`详情`（行点击已能打开抽屉）、`送去分析`、`阅片`（两者都去 viewer，仅差 `?panel=ai`）。1024 宽下按钮文字折行成"送去分/析"、表头折成"模/态"、日期折成两行（`StudiesTable.tsx` 无 `whitespace-nowrap`/列宽）。重做：主操作一个"阅片"，次操作收进行尾 `···`；列加 `min-w`/`nowrap`，低宽度隐藏 `Study UID`、`入库`。
+15. **上传对话框不支持文件夹**（`UploadDialog.tsx:414-424` 无 `webkitdirectory`，拖拽目录不递归），真实 DICOM 是几百文件的目录；未展示后端上限（512 MiB / 500 文件）；"生成演示数据"混在上传流程里。重做：双入口（选择文件夹 / 选择 ZIP）+ 拖拽目录展开 + 限额提示；演示数据入口移到空态或设置。
+16. **分割叠加缺轮廓、选中态白边成"灰晕"**（`maskComposite.ts:184-214` 只给 emphasized 画 1px 白边并用 alpha 230，经 CSS 放大后呈毛边灰晕；默认无轮廓）。行业做法：填充 25–35% + 同色 1.5px 屏幕空间轮廓（marching squares 或 `filter: drop-shadow` 技巧），选中态加粗轮廓而非提高填充不透明度（当前 ×1.35 后近乎实心遮挡肺内结节）。
+17. **Findings 列表信息设计**：每条都常驻 接受/拒绝/修正 三按钮 + 分数进度条 + 复选框 + 掩膜开关，一条 finding 五个可点区域；无"当前层"标识；标签 `Nodule`/`Lung`/`Benign` 英文。重做：列表项 = 颜色条 + 标签(中文) + 关键量(⌀/mL/置信度) + 层号；hover 才出审阅三键；当前层的 findings 置顶或高亮；分数用文字不用进度条。
+18. **阅片页首屏与 404 状态**：加载态是三块无间隙 `Skeleton` 拼成的整屏灰板（`viewer.tsx:112-116`）；Study 不存在时因 `retry: 1` 先空白 >1s 才出错误。加载态应保留壳（顶栏 + 左右面板占位 + 黑视口 + spinner）；404 类错误 `retry: false`。
+19. **模型详情五个 Tab 各放几行内容**（概览/输入约束/输出/指标/配置），首屏 70% 空白，`保存` 按钮却在页头（只对"配置"tab 有意义）。重做为单页两栏：左侧模型卡 + 指标 + 约束/输出表；右侧"运行配置"卡自带保存。总览页两块 `Table` 内容也可合并成一张"模型运行"表。
+20. **深色主题浅色闪烁与首屏**：`index.html` 固定 `class="dark"`，浅色用户每次刷新先深后浅；`PageFallback` 在 `<main class="p-6">` 内再 `p-6`，骨架双倍缩进。
+21. **DOM 非法嵌套**：`DataTable.tsx:142-156` 表头统一包 `<button>`，`selectColumn` 的 Radix `Checkbox`（也是 button）嵌进去 → React 报 `<button> cannot contain a nested <button>`，全选框可点性受影响。不可排序列不应包 button。
+22. **分类结果无可视化**：`nodule_cls` 结果只在列表显示两条概率条，视口无 CAM 叠加（`cam_overlay_uri` 契约存在但前端未消费）；任务详情"检出摘要"把 Benign/Malignant 当两条 finding 画满宽进度条。应做一张"良/恶性概率"双色条 + CAM 热图图层开关。
+23. **Sheet / Dialog / Tooltip 无进出场动画**：`sheet.tsx` 写了 `transition ease-in-out` 但没有 `data-[state]` 位移类；`select.tsx` `animate-in/out` 依赖的 `tailwindcss-animate` 未安装（`package.json` 无），类名全部无效。要么装 `tw-animate-css`，要么删掉这些死类名。
+24. **光标/交互反馈**：`wwwc` 工具用 `ns-resize` 光标（应为自定义对比度光标或 `default`），`zoom` 用 `zoom-in` 但拖拽向下是缩小；探针只在点击/移动时更新且无十字标记；测距无删除单条能力，只有 `R` 全清。
+
+### C. V2 —— 一致性 / 细节
+
+25. 顶栏是一句口号 "院内自研模型统一注册 · 调用 · 质控 · 交付"，占据整条栏；应放面包屑/页面上下文 + 全局搜索 + 通知/用户位（当前 TODO 已列，是壳层第一印象的关键空位）。
+26. 侧栏 Logo 是字母 `V` 色块，非品牌标识；折叠态 Logo 不可点回首页；折叠按钮"收起侧栏"占一整行，可放到 Logo 行右侧。
+27. 主题 token 双份定义（`@theme --color-*` 与 `:root --*`，`index.css:5-80`），recharts 与 `Sparkline` 用 `--brand`，Tailwind 用 `--color-brand`；浅色 `--color-surface-3` 与 `--surface-3` 不同步。统一为一套 `--color-*`，图表通过 `getComputedStyle` 读同一套。
+28. 语义色被当分类色：饼图/`chartColors` 用 brand/info/success/warning 表示分割/检测/分类，与状态徽标 成功=绿 / 运行=蓝 冲突。分类色应独立调色板（`overlayStyle.ts` 的 PALETTE 可复用）。
+29. 图标尺寸不统一：`h-4 w-4` / `h-3.5 w-3.5` / `h-3 w-3` / `h-5 w-5` 混用于同类按钮；`Badge` `text-xs` 与 `text-[11px]`、`text-[12px]` 硬编码并存（`TaskLogsTimeline.tsx:643`、`AiPanel.tsx:260`）。
+30. 表格排序指示用字符 ` ↑`/` ↓` 拼接在表头文字后（`DataTable.tsx:152`、`dashboard.tsx:515`），与 lucide 图标风格不一致；`列`/`紧凑` 工具条在无 toolbar 时独占一行右浮。
+31. 阅片顶栏 `patientLabel` 与工具栏 `patientLabel` 与角标三处重复显示患者/序列；工具栏左侧的截断文字挤占工具空间。
+32. 空态文案不一致："暂无 findings"、"Findings"、"运行推理后…"、"完成推理并勾选 findings 后…" 中英混排；`Ready · 模型可用`。术语统一：findings → 检出。
+33. 数据中心 `AI 状态` 列同时显示徽标 + 百分比 + 模型 id 链接三行，行高被撑到 60px；应只显示徽标（hover 显示模型/时间），进行中显示环形进度。
+34. `KpiCard` 四张同构（左文右圆角图标），无趋势/对比（`sparkline` prop 从未被传入，`daily_tasks` 已有 14 天数据可用于"今日推理"卡）。
+35. 模型卡启用/停用只靠 Switch，停用卡片外观与启用一致；应整卡降饱和 + "已停用"标签；一个切换中所有卡片 Switch 一起 disabled（`models.tsx:74`）。
+36. 设置页"界面语言 English"选项无效（i18n 未实现）；"实验功能 CS3D"面向医院用户不应可见；"关于"卡混入健康信息。
+37. `/clinical`、`/annotation` 两页已从导航移除但仍可 URL 访问，内容是"API 说明"和"占位"，会被误入；应删除路由或 302 到对应位置。
+38. 任务日志时间戳 `2026-09-06 11:37:24` 与列表 `1 天前` 两种时间格式在同页并存；统一为绝对时间 + hover 相对（或反之）。
+39. 阅片左侧序列卡 `aspect-square` 大缩略图 + 两行文字，一列只能放 3 个；真实检查 5–10 个序列需滚动。改为 96px 缩略图 + 右侧文字的横向卡，或缩略图网格。
+40. 深色视口周围：`bg-black` 视口紧贴 `bg-surface-1` 面板无过渡；活动格子 `ring-2 ring-brand ring-inset` 单视口时也显示（无意义）。
+41. 焦点环仅按钮有 `focus-visible:ring`，`FindingsList` 原生 checkbox、`SeriesList` 卡、表格行点击无键盘可达性（行 `onClick` 无 `tabIndex`/`role`）。
+
+### D. V3 —— 建议
+
+42. 字体：`Noto Sans SC` 优先于 `Inter` 导致数字/拉丁字符全部用 Noto 渲染，`tabular-nums` 在 Noto Sans SC 无效（无 tnum 特性）→ 表格数字不对齐。改 `Inter, "Noto Sans SC"` 顺序或数字列用 `font-mono`；院内离线需自托管字体（Google Fonts 已在 TODO-1 #56）。
+43. 引入 8pt 间距与三级圆角规范（`rounded-md/lg/xl` 目前随机），卡片阴影在深色下不可见可去掉 `shadow-sm`。
+44. 阅片默认打开中间层（AI 演示场景更有信息量）或记住上次层位。
+45. 结果到达时的视口反馈：当前仅 tab 切换 + 跳层；可加 800ms 轮廓脉冲动画定位新检出，并在层位条上出现刻度。
+46. 报告 tab 的 `pre` 纯文本报告改为分节卡片（患者/检查/所见/结论）+ 复制/打印按钮。
+
+### E. 做得好的（保持）
+
+- 深浅双主题 token 化、`color-scheme` 正确；浅色管理端整体干净。
+- 空态 `EmptyState` 有图标 + 主行动；错误态都有重试。
+- 阅片四角信息布局、PACS 鼠标约定（右键 W/L、中键平移、Ctrl+滚轮缩放）、快捷键表齐全。
+- 数据表有列显隐/密度切换/批量选择，任务批量操作有二次确认。
+- 模型参数表单由 JSON Schema 驱动并即时校验。
+
+### F. 建议重做顺序（每轮一个清晰目标）
+
+1. **阅片器壳与工具栏重做**：#1 #5 #31 #39 —— 三栏布局定稿（56px 图标工具栏可放左侧竖排以释放宽度）、溢出菜单、层位条、序列面板紧凑化。
+2. **阅片渲染与叠加**：#2 #3 #8 #16 #22 #24 —— W/L 初始化、屏幕空间标注层、掩膜轮廓、角标底板、CAM 图层。
+3. **AI 面板与 Findings**：#12 #13 #17 #46 —— 空态、列表重设计、审阅交互、报告卡片化。
+4. **管理端信息架构**：#7 #11 #14 #19 #25 #26 #33 #34 —— 总览去饼图加真实趋势、任务列表/详情以患者为中心、模型详情单页化、顶栏换面包屑+搜索。
+5. **文案与格式化**：#9 #10 #32 #38 —— 一次性建 `lib/format` 的 PN/性别/年龄/阶段/任务类型格式器并全站替换；模型描述改写。
+6. **多视口与上传**：#4 #15。
+7. **设计系统收口**：#20 #21 #23 #27 #28 #29 #30 #42 #43 —— token 单一来源、动画库、图标尺寸、字体顺序、修 DOM 嵌套。
+
+### G. 顺带发现（非外观，但必须修）
+
+- `.gitignore` 第 18 行 `data/` 未锚定，导致 **`frontend/src/features/data/` 整个目录未被 git 跟踪**（`git ls-files` 为空、`git check-ignore -v` 命中）。新克隆仓库前端无法编译。改为 `/data/`（同理检查 `storage/`）。
+
 
 # 仍开放（可选）
 
