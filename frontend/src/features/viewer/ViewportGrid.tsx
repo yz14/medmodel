@@ -50,7 +50,7 @@ export function ViewportGrid({
             key={id}
             className={cn(
               'relative min-h-0 min-w-0 bg-black',
-              active ? 'ring-2 ring-brand ring-inset' : 'ring-0',
+              n > 1 && active && 'ring-2 ring-brand ring-inset',
             )}
             data-testid={`viewport-cell-${id}`}
             data-active={active}
@@ -65,6 +65,7 @@ export function ViewportGrid({
               spacing={spacing}
               interactive={active}
               className="h-full w-full"
+              compactCorners={n > 1}
             />
           </div>
         )

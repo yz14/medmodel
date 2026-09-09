@@ -21,6 +21,8 @@ interface ViewerState {
   sliceCount: number
   windowWidth: number
   windowCenter: number
+  /** Series UID for which W/L was auto-seeded; null = needs seed (#2). */
+  wlSeededFor: string | null
   invert: boolean
   flipH: boolean
   flipV: boolean
@@ -34,10 +36,14 @@ interface ViewerState {
   showBoxes: boolean
   /** Length / ROI annotations on the viewport. */
   showAnnotations: boolean
+  /** Classification CAM heatmap overlay (#22). */
+  showCam: boolean
+  camOpacity: number
   enabledMaskIds: number[]
   measurements: LengthMeasurement[]
+  selectedMeasurementId: string | null
   draftLength: { x: number; y: number } | null
-  /** HU under cursor (probe). */
+  /** Value under cursor (probe). */
   probeHu: number | null
   probeImagePos: { x: number; y: number } | null
   /** FE-3: selected / hovered finding for viewport linkage. */
@@ -52,6 +58,8 @@ interface ViewerState {
   setSliceCount: (n: number) => void
   setSliceIndex: (idx: number | ((prev: number) => number)) => void
   setWindow: (width: number, center: number) => void
+  markWlSeeded: (seriesUid: string) => void
+  clearWlSeed: () => void
   setInvert: (v: boolean) => void
   setFlipH: (v: boolean) => void
   setFlipV: (v: boolean) => void
@@ -65,9 +73,13 @@ interface ViewerState {
   setShowMasks: (v: boolean) => void
   setShowBoxes: (v: boolean) => void
   setShowAnnotations: (v: boolean) => void
+  setShowCam: (v: boolean) => void
+  setCamOpacity: (v: number) => void
   setEnabledMaskIds: (ids: number[]) => void
   toggleMaskId: (id: number) => void
   addMeasurement: (m: LengthMeasurement) => void
+  removeMeasurement: (id: string) => void
+  setSelectedMeasurementId: (id: string | null) => void
   setDraftLength: (p: { x: number; y: number } | null) => void
   clearMeasurements: () => void
   setProbe: (hu: number | null, pos: { x: number; y: number } | null) => void
@@ -78,7 +90,7 @@ interface ViewerState {
   setSelectedModelId: (id: string | null) => void
   setActiveTaskId: (id: string | null) => void
   setResult: (result: InferenceResult | null) => void
-  /** Soft reset: W/L + flips; camera re-fit is done by viewport. */
+  /** Soft reset: flips + re-seed W/L; camera re-fit is done by viewport. */
   resetViewTransform: () => void
   resetViewer: () => void
 }
@@ -87,20 +99,24 @@ const defaults = {
   seriesUid: null as string | null,
   sliceIndex: 0,
   sliceCount: 0,
-  windowWidth: 1500,
-  windowCenter: -600,
+  windowWidth: 400,
+  windowCenter: 40,
+  wlSeededFor: null as string | null,
   invert: false,
   flipH: false,
   flipV: false,
   camera: identityCamera(),
   fitScale: 1,
   tool: 'scroll' as ViewerTool,
-  maskOpacity: 0.45,
+  maskOpacity: 0.32,
   showMasks: true,
   showBoxes: true,
   showAnnotations: true,
+  showCam: true,
+  camOpacity: 0.45,
   enabledMaskIds: [] as number[],
   measurements: [] as LengthMeasurement[],
+  selectedMeasurementId: null as string | null,
   draftLength: null as { x: number; y: number } | null,
   probeHu: null as number | null,
   probeImagePos: null as { x: number; y: number } | null,
@@ -129,7 +145,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       fitScale: 1,
       flipH: false,
       flipV: false,
+      wlSeededFor: null,
       measurements: [],
+      selectedMeasurementId: null,
       draftLength: null,
       probeHu: null,
       probeImagePos: null,
@@ -153,6 +171,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       return { sliceIndex: clampSlice(next, state.sliceCount) }
     }),
   setWindow: (width, center) => set({ windowWidth: width, windowCenter: center }),
+  markWlSeeded: (seriesUid) => set({ wlSeededFor: seriesUid }),
+  clearWlSeed: () => set({ wlSeededFor: null }),
   setInvert: (v) => set({ invert: v }),
   setFlipH: (v) => set({ flipH: v }),
   setFlipV: (v) => set({ flipV: v }),
@@ -166,6 +186,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setShowMasks: (v) => set({ showMasks: v }),
   setShowBoxes: (v) => set({ showBoxes: v }),
   setShowAnnotations: (v) => set({ showAnnotations: v }),
+  setShowCam: (v) => set({ showCam: v }),
+  setCamOpacity: (v) => set({ camOpacity: v }),
   setEnabledMaskIds: (ids) => set({ enabledMaskIds: ids }),
   toggleMaskId: (id) => {
     const cur = get().enabledMaskIds
@@ -173,9 +195,20 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       enabledMaskIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
     })
   },
-  addMeasurement: (m) => set((s) => ({ measurements: [...s.measurements, m] })),
+  addMeasurement: (m) =>
+    set((s) => ({
+      measurements: [...s.measurements, m],
+      selectedMeasurementId: m.id,
+    })),
+  removeMeasurement: (id) =>
+    set((s) => ({
+      measurements: s.measurements.filter((m) => m.id !== id),
+      selectedMeasurementId: s.selectedMeasurementId === id ? null : s.selectedMeasurementId,
+    })),
+  setSelectedMeasurementId: (id) => set({ selectedMeasurementId: id }),
   setDraftLength: (p) => set({ draftLength: p }),
-  clearMeasurements: () => set({ measurements: [], draftLength: null }),
+  clearMeasurements: () =>
+    set({ measurements: [], draftLength: null, selectedMeasurementId: null }),
   setProbe: (hu, pos) => set({ probeHu: hu, probeImagePos: pos }),
   setHighlightedFindingId: (id) => set({ highlightedFindingId: id }),
   setHoveredFindingId: (id) => set({ hoveredFindingId: id }),
@@ -193,17 +226,16 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       enabledMaskIds: result?.masks?.map((m) => m.label_id) ?? [],
       highlightedFindingId: null,
       hoveredFindingId: null,
+      showCam: Boolean(result?.cam_overlay_uri),
     }),
   resetViewTransform: () =>
     set({
       invert: false,
       flipH: false,
       flipV: false,
-      windowWidth: 1500,
-      windowCenter: -600,
+      wlSeededFor: null,
       probeHu: null,
       probeImagePos: null,
-      // camera re-fit is triggered by viewport (fitEpoch bump via identity reset)
       camera: identityCamera(),
       fitScale: 1,
     }),

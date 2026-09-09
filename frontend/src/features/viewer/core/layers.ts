@@ -3,7 +3,7 @@
  * this module is the visibility / opacity / z-order contract.
  */
 
-export type LayerKind = 'image' | 'mask' | 'annotation' | 'overlay'
+export type LayerKind = 'image' | 'mask' | 'cam' | 'annotation' | 'overlay'
 
 export interface ViewerLayer {
   id: LayerKind
@@ -19,14 +19,17 @@ export interface LayerFlags {
   showMasks: boolean
   showBoxes: boolean
   showAnnotations: boolean
+  showCam: boolean
   maskOpacity: number
+  camOpacity: number
 }
 
 const LAYER_META: Record<LayerKind, { label: string; order: number }> = {
   image: { label: '影像', order: 0 },
   mask: { label: '分割掩膜', order: 1 },
-  overlay: { label: '检测框', order: 2 },
-  annotation: { label: '测量', order: 3 },
+  cam: { label: 'CAM 热图', order: 2 },
+  overlay: { label: '检测框', order: 3 },
+  annotation: { label: '测量', order: 4 },
 }
 
 export function buildViewerLayers(flags: LayerFlags): ViewerLayer[] {
@@ -41,6 +44,15 @@ export function buildViewerLayers(flags: LayerFlags): ViewerLayer[] {
         label: meta.label,
         visible: flags.showMasks,
         opacity: flags.maskOpacity,
+        order: meta.order,
+      }
+    }
+    if (id === 'cam') {
+      return {
+        id,
+        label: meta.label,
+        visible: flags.showCam,
+        opacity: flags.camOpacity,
         order: meta.order,
       }
     }

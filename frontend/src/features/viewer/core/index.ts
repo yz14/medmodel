@@ -4,6 +4,7 @@ export {
   oneToOneCamera,
   toScreen,
   toImage,
+  imageToScreen,
   screenToImage,
   clampImagePoint,
   zoomAt,
@@ -26,6 +27,15 @@ export {
   niceScaleBarMm,
   type WindowPreset,
 } from './presets'
+
+export {
+  isCtLike,
+  isProjectionModality,
+  isValidWindow,
+  autoWindowFromPixels,
+  windowFromDicom,
+  resolveInitialWindow,
+} from './windowing'
 
 export {
   buildViewerLayers,

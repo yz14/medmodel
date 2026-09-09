@@ -30,6 +30,12 @@ function getPixelData(dataSet: ReturnType<typeof parseDicom>, rows: number, cols
   return out
 }
 
+function parseDsFirst(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback
+  const n = Number(raw.split('\\')[0]?.trim())
+  return Number.isFinite(n) ? n : fallback
+}
+
 export async function decodeDicomFrame(url: string): Promise<DecodedFrame> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`加载帧失败: ${res.status}`)
@@ -39,15 +45,17 @@ export async function decodeDicomFrame(url: string): Promise<DecodedFrame> {
   const cols = dataSet.uint16('x00280011') ?? 0
   const bitsAllocated = dataSet.uint16('x00280100') ?? 16
   const pixelRepresentation = dataSet.uint16('x00280103') ?? 0
-  const slope = Number(dataSet.string('x00281053') ?? '1')
-  const intercept = Number(dataSet.string('x00281052') ?? '0')
+  const slope = parseDsFirst(dataSet.string('x00281053'), 1)
+  const intercept = parseDsFirst(dataSet.string('x00281052'), 0)
   const wcRaw = dataSet.string('x00281050')
   const wwRaw = dataSet.string('x00281051')
-  const windowCenter = wcRaw ? Number(wcRaw.split('\\')[0]) : undefined
-  const windowWidth = wwRaw ? Number(wwRaw.split('\\')[0]) : undefined
+  const wcParsed = wcRaw ? parseDsFirst(wcRaw, Number.NaN) : Number.NaN
+  const wwParsed = wwRaw ? parseDsFirst(wwRaw, Number.NaN) : Number.NaN
+  const windowCenter = Number.isFinite(wcParsed) ? wcParsed : undefined
+  const windowWidth = Number.isFinite(wwParsed) && wwParsed > 0 ? wwParsed : undefined
   const raw = getPixelData(dataSet, rows, cols, bitsAllocated, pixelRepresentation)
   const pixels = new Float32Array(raw.length)
-  for (let i = 0; i < raw.length; i++) pixels[i] = raw[i] * slope + intercept
+  for (let i = 0; i < raw.length; i++) pixels[i] = raw[i]! * slope + intercept
   return { width: cols, height: rows, pixels, slope, intercept, windowCenter, windowWidth }
 }
 

@@ -16,7 +16,6 @@ import { ViewerToolbar } from '@/features/viewer/ViewerToolbar'
 import { ViewportGrid } from '@/features/viewer/ViewportGrid'
 import { SliceScrollbar } from '@/features/viewer/SliceScrollbar'
 import { AiPanel } from '@/features/viewer/AiPanel'
-import { WINDOW_PRESETS } from '@/features/viewer/core'
 import { useUiStore } from '@/stores/ui-store'
 import { useViewerStore } from '@/stores/viewer-store'
 import { cn } from '@/lib/utils'
@@ -75,11 +74,7 @@ export function ViewerPage() {
   useEffect(() => {
     resetViewer()
     const prefs = useUiStore.getState()
-    const preset =
-      WINDOW_PRESETS.find((p) => p.id === prefs.defaultWindowPreset) ?? WINDOW_PRESETS[0]
-    if (preset) {
-      useViewerStore.getState().setWindow(preset.ww, preset.wc)
-    }
+    // W/L is seeded per-series from DICOM / modality (#2) — do not force CT lung window here
     useViewerStore.getState().setViewportLayout(prefs.defaultViewportLayout)
     return () => resetViewer()
   }, [studyId, resetViewer])

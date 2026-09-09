@@ -4,25 +4,46 @@ import { renderFrameToCanvas } from '@/features/viewer/dicom-decoder'
 import { useFrameStack } from '@/features/viewer/useFrameStack'
 import { clearMaskImageCache, paintMaskOverlay } from '@/features/viewer/maskComposite'
 import { ViewportCorners, type ViewportMeta } from '@/features/viewer/ViewportCorners'
+import { OverlayScreenLabels } from '@/features/viewer/OverlayScreenLabels'
 import {
   cameraCssTransform,
   clampImagePoint,
   detectionColor,
   fitCamera,
   buildViewerLayers,
+  imageToScreen,
+  isCtLike,
   isLayerVisible,
   isNearFit,
   niceScaleBarMm,
   oneToOneCamera,
   panBy,
-  pixelDistanceMm,
   relativeZoom,
+  resolveInitialWindow,
   screenToImage,
   zoomAt,
 } from '@/features/viewer/core'
+import { useUiStore } from '@/stores/ui-store'
 import { useViewerStore } from '@/stores/viewer-store'
 import type { DetectionBox } from '@/types/api'
 import { cn } from '@/lib/utils'
+
+function distPointToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len2 = dx * dx + dy * dy
+  if (len2 < 1e-6) return Math.hypot(px - x1, py - y1)
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
 
 export function StackViewport({
   seriesUid,
@@ -31,6 +52,7 @@ export function StackViewport({
   spacing,
   className,
   interactive = true,
+  compactCorners = false,
 }: {
   seriesUid: string
   sliceCount: number
@@ -39,6 +61,8 @@ export function StackViewport({
   className?: string
   /** FE-3: only the active grid cell handles pointer / wheel. */
   interactive?: boolean
+  /** Small multi-viewport cells: only Im + W/L. */
+  compactCorners?: boolean
 }) {
   const baseRef = useRef<HTMLCanvasElement>(null)
   const maskRef = useRef<HTMLCanvasElement>(null)
@@ -51,7 +75,6 @@ export function StackViewport({
     ww: number
     wc: number
   } | null>(null)
-  /** Bump to force re-fit after reset / series change. */
   const [fitNonce, setFitNonce] = useState(0)
   const fittedKeyRef = useRef<string>('')
 
@@ -59,6 +82,9 @@ export function StackViewport({
   const setSliceCount = useViewerStore((s) => s.setSliceCount)
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
+  const wlSeededFor = useViewerStore((s) => s.wlSeededFor)
+  const markWlSeeded = useViewerStore((s) => s.markWlSeeded)
+  const setWindow = useViewerStore((s) => s.setWindow)
   const invert = useViewerStore((s) => s.invert)
   const flipH = useViewerStore((s) => s.flipH)
   const flipV = useViewerStore((s) => s.flipV)
@@ -72,11 +98,15 @@ export function StackViewport({
   const showBoxes = useViewerStore((s) => s.showBoxes)
   const showMasks = useViewerStore((s) => s.showMasks)
   const showAnnotations = useViewerStore((s) => s.showAnnotations)
+  const showCam = useViewerStore((s) => s.showCam)
+  const camOpacity = useViewerStore((s) => s.camOpacity)
   const maskOpacity = useViewerStore((s) => s.maskOpacity)
   const enabledMaskIds = useViewerStore((s) => s.enabledMaskIds)
   const measurements = useViewerStore((s) => s.measurements)
+  const selectedMeasurementId = useViewerStore((s) => s.selectedMeasurementId)
   const draftLength = useViewerStore((s) => s.draftLength)
   const probeHu = useViewerStore((s) => s.probeHu)
+  const probeImagePos = useViewerStore((s) => s.probeImagePos)
   const highlightedFindingId = useViewerStore((s) => s.highlightedFindingId)
   const hoveredFindingId = useViewerStore((s) => s.hoveredFindingId)
 
@@ -105,38 +135,42 @@ export function StackViewport({
         showMasks,
         showBoxes,
         showAnnotations,
+        showCam,
         maskOpacity,
+        camOpacity,
       }),
-    [showMasks, showBoxes, showAnnotations, maskOpacity],
+    [showMasks, showBoxes, showAnnotations, showCam, maskOpacity, camOpacity],
   )
   const layerMaskOn = isLayerVisible(layers, 'mask')
   const layerBoxesOn = isLayerVisible(layers, 'overlay')
   const layerAnnOn = isLayerVisible(layers, 'annotation')
+  const layerCamOn = isLayerVisible(layers, 'cam')
 
   const { frame, error, loading } = useFrameStack(seriesUid, sliceIndex, sliceCount)
 
-  // Keep store sliceCount in sync for Findings jumps (N-F2)
   useEffect(() => {
     setSliceCount(sliceCount)
   }, [sliceCount, setSliceCount])
 
-  // Seed W/L once from DICOM
+  // #2: W/L seed per series — DICOM → CT preset → percentile auto
   useEffect(() => {
-    if (!frame?.windowWidth || !frame.windowCenter) return
-    const state = useViewerStore.getState()
-    if (state.windowWidth === 1500 && state.windowCenter === -600) {
-      state.setWindow(frame.windowWidth, frame.windowCenter)
-    }
-  }, [frame])
+    if (!frame || !seriesUid) return
+    if (wlSeededFor === seriesUid) return
+    const preferred = useUiStore.getState().defaultWindowPreset
+    const resolved = resolveInitialWindow({
+      frame,
+      modality: meta?.modality,
+      preferredPresetId: preferred,
+    })
+    setWindow(resolved.ww, resolved.wc)
+    markWlSeeded(seriesUid)
+  }, [frame, seriesUid, wlSeededFor, meta?.modality, setWindow, markWlSeeded])
 
   useEffect(() => {
     if (!frame || !baseRef.current) return
     renderFrameToCanvas(baseRef.current, frame, windowWidth, windowCenter, invert)
   }, [frame, windowWidth, windowCenter, invert])
 
-  // Fit-to-window when image size / series changes or user requests fit (FE-2).
-  // Do NOT depend on `frame` identity — slice scroll must not reset the camera.
-  // On resize: re-fit only when still near last fit; never rewrite fitScale while user-zoomed.
   const imageW = frame?.width ?? 0
   const imageH = frame?.height ?? 0
   useEffect(() => {
@@ -158,7 +192,6 @@ export function StackViewport({
         setFitScale(fitted.scale)
         fittedKeyRef.current = `${imageKey}:${fitNonce}`
       }
-      // User-zoomed: keep absolute camera + fitScale so relative % and pivot stay stable.
     }
 
     apply(true)
@@ -167,7 +200,6 @@ export function StackViewport({
     return () => ro.disconnect()
   }, [imageW, imageH, seriesUid, fitNonce, setCamera, setFitScale])
 
-  // Mask cache dispose on task/series change (N-F4)
   useEffect(() => {
     clearMaskImageCache()
     return () => clearMaskImageCache()
@@ -198,8 +230,8 @@ export function StackViewport({
         opacity: maskOpacity,
         emphasizeLabelId: emphasizeMaskId,
         hoverLabelId: hoverMaskId,
+        shouldCommit: () => !cancelled,
       })
-      if (cancelled) return
     }
 
     void run()
@@ -228,12 +260,31 @@ export function StackViewport({
     [measurements, sliceIndex, layerAnnOn],
   )
 
-  const spacingRow = spacing?.[1] ?? 1
-  const scaleBarMm = niceScaleBarMm(camera.scale, spacingRow || 1)
-  const scaleBarPx = (scaleBarMm / (spacingRow || 1)) * camera.scale
+  const camUrl = useMemo(() => {
+    if (!layerCamOn || !activeTaskId || !result?.cam_overlay_uri) return null
+    const named = result.artifacts?.find((a) => /cam/i.test(a.name))?.name
+    return api.artifactUrl(activeTaskId, named ?? 'cam.png')
+  }, [layerCamOn, activeTaskId, result])
+
+  // Horizontal scale bar uses column spacing (x), not row (y)
+  const spacingCol = spacing?.[2] ?? spacing?.[1] ?? 1
+  const scaleBarMm = niceScaleBarMm(camera.scale, spacingCol || 1)
+  const scaleBarPx = (scaleBarMm / (spacingCol || 1)) * camera.scale
   const zoomPct = relativeZoom(camera, fitScale || camera.scale)
 
-  // Expose fit / 1:1 for toolbar via custom events (avoids prop drilling)
+  const probeScreen = useMemo(() => {
+    if (!probeImagePos || !frame) return null
+    return imageToScreen(
+      camera,
+      probeImagePos.x,
+      probeImagePos.y,
+      frame.width,
+      frame.height,
+      flipH,
+      flipV,
+    )
+  }, [probeImagePos, frame, camera, flipH, flipV])
+
   useEffect(() => {
     const onFit = () => setFitNonce((n) => n + 1)
     const onOneToOne = () => {
@@ -243,7 +294,6 @@ export function StackViewport({
       const rect = el.getBoundingClientRect()
       const cam = oneToOneCamera(rect.width, rect.height, fr.width, fr.height)
       setCamera(cam)
-      // keep fitScale as last fit for relative % display
     }
     const onReset = () => {
       setFitNonce((n) => n + 1)
@@ -258,7 +308,6 @@ export function StackViewport({
     }
   }, [frame, setCamera])
 
-  // Wheel: scroll / zoom-at-cursor (N-F3) — active viewport only (FE-3)
   useEffect(() => {
     const el = stageRef.current
     if (!el || !interactive) return
@@ -283,7 +332,6 @@ export function StackViewport({
     return () => el.removeEventListener('wheel', onWheel)
   }, [sliceCount, interactive])
 
-  // Pointer: deps only tool + frame presence (N-F5) — live values via getState()
   useEffect(() => {
     const el = stageRef.current
     if (!el || !frame || !interactive) return
@@ -310,11 +358,21 @@ export function StackViewport({
       return frame.pixels[y * frame.width + x] ?? null
     }
 
+    const hitMeasurement = (ix: number, iy: number, st: ReturnType<typeof useViewerStore.getState>) => {
+      const thresh = 8 / Math.max(st.camera.scale, 1e-6)
+      let best: { id: string; d: number } | null = null
+      for (const m of st.measurements) {
+        if (m.sliceIndex !== st.sliceIndex) continue
+        const d = distPointToSegment(ix, iy, m.x1, m.y1, m.x2, m.y2)
+        if (d <= thresh && (!best || d < best.d)) best = { id: m.id, d }
+      }
+      return best?.id ?? null
+    }
+
     const onDown = (e: PointerEvent) => {
       const st = useViewerStore.getState()
       const t = st.tool
 
-      // Middle = pan; right = wwwc (PACS convention)
       if (e.button === 1 || t === 'pan' || (e.button === 0 && e.shiftKey)) {
         dragRef.current = {
           mode: 'pan',
@@ -354,9 +412,15 @@ export function StackViewport({
       }
       if (t === 'length' && e.button === 0) {
         const pt = imagePointFromEvent(e)
+        const hit = hitMeasurement(pt.x, pt.y, st)
+        if (hit && !st.draftLength) {
+          st.setSelectedMeasurementId(hit)
+          return
+        }
         const draft = st.draftLength
         if (!draft) {
           st.setDraftLength(pt)
+          st.setSelectedMeasurementId(null)
         } else {
           st.addMeasurement({
             id: `len-${Date.now()}`,
@@ -381,20 +445,16 @@ export function StackViewport({
       const st = useViewerStore.getState()
       const drag = dragRef.current
 
-      if (st.tool === 'probe' || (!drag && (e.buttons === 0 || st.tool === 'scroll'))) {
-        // Live HU probe when probe tool, or soft probe on hover for scroll tool
-        if (st.tool === 'probe') {
-          const pt = imagePointFromEvent(e)
-          const hu = sampleHu(pt.x, pt.y)
-          st.setProbe(hu, pt)
-        }
+      if (st.tool === 'probe') {
+        const pt = imagePointFromEvent(e)
+        const hu = sampleHu(pt.x, pt.y)
+        st.setProbe(hu, pt)
       }
 
       if (!drag?.mode) return
       const dx = e.clientX - drag.startX
       const dy = e.clientY - drag.startY
       if (drag.mode === 'pan') {
-        // Screen-space pan (already in screen px — correct at any zoom) (N-F3)
         st.setCamera(panBy(drag.camera, dx, dy))
       } else if (drag.mode === 'wwwc') {
         st.setWindow(Math.max(1, drag.ww + dx * 2), drag.wc - dy * 2)
@@ -432,7 +492,6 @@ export function StackViewport({
     }
   }, [frame, tool, interactive])
 
-  // Keyboard: tools, slices, flip, reset — active viewport only
   useEffect(() => {
     if (!interactive) return
     const onKey = (e: KeyboardEvent) => {
@@ -454,6 +513,16 @@ export function StackViewport({
       }
       if (toolMap[e.key]) {
         st.setTool(toolMap[e.key]!)
+        return
+      }
+      if (e.key === 'Escape') {
+        st.setDraftLength(null)
+        st.setSelectedMeasurementId(null)
+        return
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedMeasurementId) {
+        e.preventDefault()
+        st.removeMeasurement(st.selectedMeasurementId)
         return
       }
       if (e.key === 'PageDown' || e.key === 'ArrowDown') {
@@ -489,10 +558,12 @@ export function StackViewport({
         return
       }
       if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
         setFitNonce((n) => n + 1)
         return
       }
       if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
         st.resetViewTransform()
         st.clearMeasurements()
         setFitNonce((n) => n + 1)
@@ -507,12 +578,14 @@ export function StackViewport({
     : tool === 'pan'
       ? 'grab'
       : tool === 'wwwc'
-        ? 'ns-resize'
+        ? 'default'
         : tool === 'length' || tool === 'probe'
           ? 'crosshair'
           : tool === 'zoom'
-            ? 'zoom-in'
+            ? 'ns-resize'
             : 'default'
+
+  const strokePx = (screenPx: number) => screenPx / Math.max(camera.scale, 1e-6)
 
   return (
     <div
@@ -553,11 +626,26 @@ export function StackViewport({
             className="block"
             style={{ width: frame.width, height: frame.height }}
           />
+          {camUrl && (
+            <img
+              src={camUrl}
+              alt=""
+              className="pointer-events-none absolute left-0 top-0"
+              style={{
+                width: frame.width,
+                height: frame.height,
+                opacity: camOpacity,
+                mixBlendMode: 'screen',
+              }}
+              draggable={false}
+            />
+          )}
           <canvas
             ref={maskRef}
             className="pointer-events-none absolute left-0 top-0"
             style={{ width: frame.width, height: frame.height }}
           />
+          {/* Image-space geometry only — labels are screen-space (#3) */}
           <svg
             className="pointer-events-none absolute left-0 top-0"
             width={frame.width}
@@ -572,8 +660,7 @@ export function StackViewport({
               const selected = emphasizeBoxId === box.id
               const hovered = hoverBoxId === box.id
               const dimmed = Boolean(emphasizeBoxId && !selected)
-              const strokeW =
-                Math.max(frame.width / 256, 1.5) * (selected ? 2.2 : hovered ? 1.6 : 1)
+              const sw = strokePx(selected ? 2.5 : hovered ? 2 : 1.5)
               return (
                 <g key={box.id} opacity={dimmed ? 0.35 : 1}>
                   <rect
@@ -583,54 +670,81 @@ export function StackViewport({
                     height={h}
                     fill={selected || hovered ? `${color}22` : 'none'}
                     stroke={color}
-                    strokeWidth={strokeW}
+                    strokeWidth={sw}
+                    vectorEffect="non-scaling-stroke"
                   />
-                  <text
-                    x={x}
-                    y={Math.max(12, y - 4)}
-                    fill={color}
-                    fontSize={Math.max(12, frame.width / 40)}
-                    fontWeight={selected ? 600 : 400}
-                  >
-                    {box.label} {(box.confidence * 100).toFixed(0)}%
-                  </text>
                 </g>
               )
             })}
 
             {sliceMeasurements.map((m) => {
-              const dist = pixelDistanceMm(m.x1, m.y1, m.x2, m.y2, spacing)
+              const selected = selectedMeasurementId === m.id
               return (
                 <g key={m.id}>
-                  <line x1={m.x1} y1={m.y1} x2={m.x2} y2={m.y2} stroke="#38BDF8" strokeWidth={2} />
-                  <circle cx={m.x1} cy={m.y1} r={3} fill="#38BDF8" />
-                  <circle cx={m.x2} cy={m.y2} r={3} fill="#38BDF8" />
-                  <text
-                    x={(m.x1 + m.x2) / 2}
-                    y={(m.y1 + m.y2) / 2 - 6}
-                    fill="#38BDF8"
-                    fontSize={Math.max(12, frame.width / 42)}
-                    textAnchor="middle"
-                  >
-                    {dist.toFixed(1)} mm
-                  </text>
+                  <line
+                    x1={m.x1}
+                    y1={m.y1}
+                    x2={m.x2}
+                    y2={m.y2}
+                    stroke={selected ? '#FBBF24' : '#38BDF8'}
+                    strokeWidth={strokePx(selected ? 2.5 : 2)}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <circle
+                    cx={m.x1}
+                    cy={m.y1}
+                    r={strokePx(3.5)}
+                    fill={selected ? '#FBBF24' : '#38BDF8'}
+                  />
+                  <circle
+                    cx={m.x2}
+                    cy={m.y2}
+                    r={strokePx(3.5)}
+                    fill={selected ? '#FBBF24' : '#38BDF8'}
+                  />
                 </g>
               )
             })}
 
             {draftLength && layerAnnOn && (
-              <circle cx={draftLength.x} cy={draftLength.y} r={4} fill="#38BDF8" />
+              <circle cx={draftLength.x} cy={draftLength.y} r={strokePx(4)} fill="#38BDF8" />
             )}
           </svg>
         </div>
       )}
 
-      {/* Scale bar (screen space) */}
+      {frame && (
+        <OverlayScreenLabels
+          camera={camera}
+          imageW={frame.width}
+          imageH={frame.height}
+          flipH={flipH}
+          flipV={flipV}
+          boxes={boxesOnSlice}
+          measurements={sliceMeasurements}
+          selectedMeasurementId={selectedMeasurementId}
+          spacing={spacing}
+        />
+      )}
+
+      {/* Probe crosshair — screen space (#24) */}
+      {tool === 'probe' && probeScreen && (
+        <div
+          className="pointer-events-none absolute z-[16]"
+          style={{ left: probeScreen.x, top: probeScreen.y }}
+        >
+          <div className="absolute -left-3 top-0 h-px w-6 bg-sky-300/90" />
+          <div className="absolute left-0 -top-3 h-6 w-px bg-sky-300/90" />
+          <div className="absolute -left-1 -top-1 h-2 w-2 rounded-full border border-sky-200 bg-sky-400/40" />
+        </div>
+      )}
+
+      {/* Scale bar — bottom-right above Im (#8) */}
       {frame && scaleBarPx > 20 && (
-        <div className="pointer-events-none absolute bottom-10 left-1/2 z-20 -translate-x-1/2">
-          <div className="flex flex-col items-center gap-0.5 text-xs text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+        <div className="pointer-events-none absolute bottom-12 right-3 z-20">
+          <div className="flex flex-col items-end gap-0.5 rounded bg-black/45 px-1.5 py-1 backdrop-blur-[2px]">
             <div className="h-0.5 bg-white/90" style={{ width: scaleBarPx }} />
-            <div className="tabular-nums">{scaleBarMm} mm</div>
+            <div className="text-[11px] tabular-nums text-white/95">{scaleBarMm} mm</div>
           </div>
         </div>
       )}
@@ -643,10 +757,11 @@ export function StackViewport({
         windowCenter={windowCenter}
         zoom={zoomPct}
         probeHu={probeHu}
+        probeLabel={isCtLike(meta?.modality) ? 'HU' : '值'}
         flipH={flipH}
         flipV={flipV}
+        compact={compactCorners}
       />
     </div>
   )
 }
-

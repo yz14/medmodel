@@ -64,6 +64,21 @@ export function toScreen(cam: Camera2D, ix: number, iy: number): Point2D {
   return { x: ix * cam.scale + cam.tx, y: iy * cam.scale + cam.ty }
 }
 
+/** Image → screen accounting for H/V flip (matches cameraCssTransform). */
+export function imageToScreen(
+  cam: Camera2D,
+  ix: number,
+  iy: number,
+  imageW: number,
+  imageH: number,
+  flipH = false,
+  flipV = false,
+): Point2D {
+  const x = flipH ? imageW - ix : ix
+  const y = flipV ? imageH - iy : iy
+  return toScreen(cam, x, y)
+}
+
 export function toImage(cam: Camera2D, sx: number, sy: number): Point2D {
   return { x: (sx - cam.tx) / cam.scale, y: (sy - cam.ty) / cam.scale }
 }

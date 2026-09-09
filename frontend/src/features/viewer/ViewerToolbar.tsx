@@ -154,6 +154,8 @@ export function ViewerToolbar({ sliceCount }: { sliceCount: number }) {
   const setShowMasks = useViewerStore((s) => s.setShowMasks)
   const setShowBoxes = useViewerStore((s) => s.setShowBoxes)
   const setShowAnnotations = useViewerStore((s) => s.setShowAnnotations)
+  const showCam = useViewerStore((s) => s.showCam)
+  const setShowCam = useViewerStore((s) => s.setShowCam)
   const viewportLayout = useViewerStore((s) => s.viewportLayout)
   const setViewportLayout = useViewerStore((s) => s.setViewportLayout)
 
@@ -324,6 +326,10 @@ export function ViewerToolbar({ sliceCount }: { sliceCount: number }) {
           <DropdownMenuCheckboxItem checked={showBoxes} onCheckedChange={(v) => setShowBoxes(!!v)}>
             <BoxSelect className="mr-2 h-4 w-4" />
             检测框
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={showCam} onCheckedChange={(v) => setShowCam(!!v)}>
+            <SunMoon className="mr-2 h-4 w-4" />
+            CAM 热图
           </DropdownMenuCheckboxItem>
           <DropdownMenuCheckboxItem
             checked={showAnnotations}

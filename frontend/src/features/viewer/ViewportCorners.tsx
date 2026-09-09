@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { isCtLike, isProjectionModality } from '@/features/viewer/core'
 
 export interface ViewportMeta {
   patientName?: string | null
@@ -11,6 +12,9 @@ export interface ViewportMeta {
   sliceThickness?: number | null
 }
 
+const chip =
+  'rounded px-1.5 py-0.5 bg-black/45 backdrop-blur-[2px] text-[11px] leading-snug text-white/95'
+
 export function ViewportCorners({
   meta,
   sliceIndex,
@@ -19,8 +23,10 @@ export function ViewportCorners({
   windowCenter,
   zoom,
   probeHu,
+  probeLabel = 'HU',
   flipH,
   flipV,
+  compact = false,
   className,
 }: {
   meta?: ViewportMeta
@@ -31,48 +37,76 @@ export function ViewportCorners({
   /** Relative to fit-to-window (1 = 100%). */
   zoom: number
   probeHu?: number | null
+  /** CT → HU; MR/DX → 像素值 */
+  probeLabel?: string
   flipH?: boolean
   flipV?: boolean
+  /** Small grid cells: only Im + W/L (#4 deferred helper). */
+  compact?: boolean
   className?: string
 }) {
-  const corner =
-    'pointer-events-none absolute text-xs leading-relaxed text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]'
+  const modality = meta?.modality
+  const showThickness =
+    !isProjectionModality(modality) && meta?.sliceThickness != null && Number.isFinite(meta.sliceThickness)
+  const showProbe =
+    probeHu != null && Number.isFinite(probeHu) && (isCtLike(modality) || !isProjectionModality(modality))
+
+  if (compact) {
+    return (
+      <div className={cn('pointer-events-none absolute inset-0 z-20', className)}>
+        <div className={cn(chip, 'absolute left-2 top-2 tabular-nums')}>
+          W/L {Math.round(windowWidth)}/{Math.round(windowCenter)}
+        </div>
+        <div className={cn(chip, 'absolute bottom-2 right-2 tabular-nums')}>
+          Im {sliceCount ? `${sliceIndex + 1}/${sliceCount}` : '—'}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={cn('pointer-events-none absolute inset-0 z-20', className)}>
-      <div className={cn(corner, 'left-3 top-3')}>
-        <div className="font-medium">{meta?.patientName || 'Anonymous'}</div>
-        <div className="text-white/70">
+      <div className={cn('absolute left-3 top-3 space-y-0.5')}>
+        <div className={cn(chip, 'font-medium')}>{meta?.patientName || 'Anonymous'}</div>
+        <div className={cn(chip, 'text-white/80')}>
           {[meta?.patientId, meta?.patientSex, meta?.patientAge].filter(Boolean).join(' · ') || '—'}
         </div>
       </div>
 
-      <div className={cn(corner, 'right-3 top-3 text-right')}>
-        <div>{meta?.modality || '—'}</div>
-        <div className="max-w-[220px] truncate text-white/70">{meta?.studyDescription || 'Study'}</div>
-        <div className="max-w-[220px] truncate text-white/70">{meta?.seriesDescription || 'Series'}</div>
+      <div className={cn('absolute right-3 top-3 space-y-0.5 text-right')}>
+        <div className={chip}>{meta?.modality || '—'}</div>
+        <div className={cn(chip, 'max-w-[220px] truncate text-white/80')}>
+          {meta?.studyDescription || 'Study'}
+        </div>
+        <div className={cn(chip, 'max-w-[220px] truncate text-white/80')}>
+          {meta?.seriesDescription || 'Series'}
+        </div>
       </div>
 
-      <div className={cn(corner, 'bottom-3 left-3')}>
-        <div className="tabular-nums">
+      <div className={cn('absolute bottom-3 left-3 space-y-0.5')}>
+        <div className={cn(chip, 'tabular-nums')}>
           W/L: {Math.round(windowWidth)} / {Math.round(windowCenter)}
         </div>
-        <div className="tabular-nums">Zoom: {(zoom * 100).toFixed(0)}%</div>
-        {meta?.sliceThickness != null && (
-          <div className="tabular-nums text-white/70">Thk: {meta.sliceThickness.toFixed(2)} mm</div>
+        <div className={cn(chip, 'tabular-nums')}>Zoom: {(zoom * 100).toFixed(0)}%</div>
+        {showThickness && (
+          <div className={cn(chip, 'tabular-nums text-white/80')}>
+            Thk: {meta!.sliceThickness!.toFixed(2)} mm
+          </div>
         )}
         {(flipH || flipV) && (
-          <div className="text-white/70">
+          <div className={cn(chip, 'text-white/80')}>
             Flip {[flipH && 'H', flipV && 'V'].filter(Boolean).join('+')}
           </div>
         )}
-        {probeHu != null && Number.isFinite(probeHu) && (
-          <div className="tabular-nums text-sky-300">HU: {Math.round(probeHu)}</div>
+        {showProbe && (
+          <div className={cn(chip, 'tabular-nums text-sky-200')}>
+            {isCtLike(modality) ? 'HU' : probeLabel}: {Math.round(probeHu!)}
+          </div>
         )}
       </div>
 
-      <div className={cn(corner, 'bottom-3 right-3 text-right tabular-nums')}>
-        <div>Im: {sliceCount ? `${sliceIndex + 1} / ${sliceCount}` : '—'}</div>
+      <div className={cn(chip, 'absolute bottom-3 right-3 tabular-nums')}>
+        Im: {sliceCount ? `${sliceIndex + 1} / ${sliceCount}` : '—'}
       </div>
     </div>
   )

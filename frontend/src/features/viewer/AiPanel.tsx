@@ -58,6 +58,10 @@ export function AiPanel({
   const setShowBoxes = useViewerStore((s) => s.setShowBoxes)
   const showAnnotations = useViewerStore((s) => s.showAnnotations)
   const setShowAnnotations = useViewerStore((s) => s.setShowAnnotations)
+  const showCam = useViewerStore((s) => s.showCam)
+  const setShowCam = useViewerStore((s) => s.setShowCam)
+  const camOpacity = useViewerStore((s) => s.camOpacity)
+  const setCamOpacity = useViewerStore((s) => s.setCamOpacity)
   const maskOpacity = useViewerStore((s) => s.maskOpacity)
   const setMaskOpacity = useViewerStore((s) => s.setMaskOpacity)
   const enabledMaskIds = useViewerStore((s) => s.enabledMaskIds)
@@ -432,6 +436,16 @@ export function AiPanel({
                 aria-label="显示测量标注"
               />
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted">CAM 热图</span>
+              <Switch
+                checked={showCam}
+                onCheckedChange={setShowCam}
+                disabled={!result?.cam_overlay_uri}
+                aria-label="显示 CAM 热图"
+                data-testid="show-cam"
+              />
+            </div>
             <div>
               <div className="mb-1 flex justify-between text-xs text-muted">
                 <span>掩膜透明度</span>
@@ -446,6 +460,22 @@ export function AiPanel({
                 onValueChange={([v]) => setMaskOpacity(v ?? maskOpacity)}
               />
             </div>
+            {result?.cam_overlay_uri && (
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-muted">
+                  <span>CAM 透明度</span>
+                  <span>{Math.round(camOpacity * 100)}%</span>
+                </div>
+                <Slider
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={[camOpacity]}
+                  aria-label="CAM 叠加透明度"
+                  onValueChange={([v]) => setCamOpacity(v ?? camOpacity)}
+                />
+              </div>
+            )}
           </div>
         </TabsContent>
 

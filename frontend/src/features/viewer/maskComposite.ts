@@ -89,9 +89,8 @@ export function clearMaskImageCache() {
 }
 
 /**
- * Draw labelmap PNG onto overlay canvas: pixels matching enabled labels get that label's color.
- * Supports multi-label stacks (pixel value == label_id) and binary (any non-zero → first enabled).
- * FE-3: emphasizeLabelId / hoverLabelId boost fill + draw a thin outline.
+ * Draw labelmap PNG: fill at capped opacity + same-color contour for all enabled labels (#16).
+ * Emphasize / hover thicken the outline only — never boost fill to near-opaque.
  */
 export async function paintMaskOverlay(
   canvas: HTMLCanvasElement,
@@ -104,6 +103,8 @@ export async function paintMaskOverlay(
     opacity: number
     emphasizeLabelId?: number | null
     hoverLabelId?: number | null
+    /** Called after async load; return false to skip putImageData (stale request). */
+    shouldCommit?: () => boolean
   },
 ): Promise<boolean> {
   const {
@@ -115,6 +116,7 @@ export async function paintMaskOverlay(
     opacity,
     emphasizeLabelId = null,
     hoverLabelId = null,
+    shouldCommit,
   } = opts
   canvas.width = width
   canvas.height = height
@@ -131,6 +133,7 @@ export async function paintMaskOverlay(
     ctx.clearRect(0, 0, width, height)
     return false
   }
+  if (shouldCommit && !shouldCommit()) return false
 
   const off = document.createElement('canvas')
   off.width = width
@@ -149,7 +152,9 @@ export async function paintMaskOverlay(
   }
   if (!colorById.size) return false
 
-  const baseAlpha = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
+  // Fill stays in ~25–35% range even if UI opacity is higher
+  const fillOpacity = Math.min(0.35, Math.max(0, opacity) * 0.85)
+  const baseAlpha = Math.round(fillOpacity * 255)
   const ids = [...colorById.keys()]
   const isBinaryFriendly = ids.length === 1
 
@@ -169,9 +174,11 @@ export async function paintMaskOverlay(
       const color = colorById.get(id)
       if (!color) continue
       let a = baseAlpha
-      if (emphasizeLabelId != null && id === emphasizeLabelId) a = Math.min(255, Math.round(a * 1.35))
-      else if (hoverLabelId != null && id === hoverLabelId) a = Math.min(255, Math.round(a * 1.2))
-      else if (emphasizeLabelId != null && id !== emphasizeLabelId) a = Math.round(a * 0.45)
+      // Dim non-emphasized when something is selected — still keep readable fill
+      if (emphasizeLabelId != null && id !== emphasizeLabelId) a = Math.round(a * 0.4)
+      else if (hoverLabelId != null && id === hoverLabelId && id !== emphasizeLabelId) {
+        a = Math.min(255, Math.round(a * 1.1))
+      }
 
       const o = (y * width + x) * 4
       out.data[o] = color[0]
@@ -181,20 +188,12 @@ export async function paintMaskOverlay(
     }
   }
 
-  // Outline for emphasized / hovered labels
-  const outlineIds = [emphasizeLabelId, hoverLabelId].filter(
-    (v): v is number => typeof v === 'number' && enabledIds.includes(v),
-  )
-  for (const oid of new Set(outlineIds)) {
-    const color = colorById.get(oid) ?? ([255, 255, 255] as [number, number, number])
-    const edge: [number, number, number] =
-      oid === emphasizeLabelId
-        ? [255, 255, 255]
-        : [
-            Math.min(255, color[0] + 40),
-            Math.min(255, color[1] + 40),
-            Math.min(255, color[2] + 40),
-          ]
+  // Same-color contour for every enabled label (radiology convention)
+  for (const oid of ids) {
+    const color = colorById.get(oid)!
+    const selected = oid === emphasizeLabelId
+    const hovered = oid === hoverLabelId
+    const edgeAlpha = selected ? 240 : hovered ? 210 : 200
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         if (labelAt(x, y) !== oid) continue
@@ -204,15 +203,35 @@ export async function paintMaskOverlay(
           labelAt(x, y - 1) !== oid ||
           labelAt(x, y + 1) !== oid
         if (!edgePixel) continue
+        // Thicker outline for selected: also paint 4-neighborhood as edge tint
         const o = (y * width + x) * 4
-        out.data[o] = edge[0]
-        out.data[o + 1] = edge[1]
-        out.data[o + 2] = edge[2]
-        out.data[o + 3] = oid === emphasizeLabelId ? 230 : 180
+        out.data[o] = color[0]
+        out.data[o + 1] = color[1]
+        out.data[o + 2] = color[2]
+        out.data[o + 3] = edgeAlpha
+        if (selected || hovered) {
+          for (const [dx, dy] of [
+            [-1, 0],
+            [1, 0],
+            [0, -1],
+            [0, 1],
+          ] as const) {
+            const nx = x + dx
+            const ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+            if (labelAt(nx, ny) === oid) continue
+            const no = (ny * width + nx) * 4
+            out.data[no] = color[0]
+            out.data[no + 1] = color[1]
+            out.data[no + 2] = color[2]
+            out.data[no + 3] = Math.round(edgeAlpha * 0.85)
+          }
+        }
       }
     }
   }
 
+  if (shouldCommit && !shouldCommit()) return false
   ctx.putImageData(out, 0, 0)
   return true
 }
