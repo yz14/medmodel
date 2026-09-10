@@ -633,6 +633,11 @@ export interface components {
             metrics?: {
                 [key: string]: number;
             };
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** ModelOutputSpec */
         ModelOutputSpec: {
@@ -916,6 +921,8 @@ export interface components {
             task_id: string;
             /** Model Id */
             model_id: string;
+            /** Model Name */
+            model_name?: string | null;
             /** Status */
             status: ("queued" | "running" | "succeeded" | "failed" | "canceled") | string;
             /**
@@ -1023,6 +1030,16 @@ export interface components {
             model_id: string;
             /** Model Version */
             model_version?: string | null;
+            /** Patient Name */
+            patient_name?: string | null;
+            /** Patient Id */
+            patient_id?: string | null;
+            /** Modality */
+            modality?: string | null;
+            /** Study Description */
+            study_description?: string | null;
+            /** Model Name */
+            model_name?: string | null;
             /** Params */
             params?: {
                 [key: string]: unknown;

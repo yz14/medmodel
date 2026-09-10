@@ -61,7 +61,7 @@ def list_tasks(
         page=page, page_size=page_size, status=status_filter, model_id=model_id, q=q
     )
     return Page(
-        items=[TaskSummary.model_validate(svc.task_to_dict(t)) for t in rows],
+        items=[TaskSummary.model_validate(d) for d in svc.tasks_to_dicts(rows)],
         total=total,
         page=page,
         page_size=page_size,

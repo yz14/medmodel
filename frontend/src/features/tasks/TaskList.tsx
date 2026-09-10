@@ -4,13 +4,14 @@ import { type ColumnDef, type RowSelectionState } from '@tanstack/react-table'
 import { RotateCcw, XCircle, Eye } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { api } from '@/lib/api'
-import { formatDateTime, formatMs, formatPercent, shortUid } from '@/lib/format'
+import { formatDateTime, formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/components/ui/sonner'
 import { errorMessage } from '@/lib/errors'
+import { stageLabel } from '@/features/tasks/stages'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -95,27 +96,47 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
       selectColumn<TaskSummary>(),
       {
         id: 'task',
-        header: '任务',
+        header: '检查 / 任务',
         accessorKey: 'task_id',
-        cell: ({ row }) => (
-          <div>
-            <Link
-              to={`/tasks/${row.original.task_id}`}
-              className="font-mono text-xs text-brand hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {shortUid(row.original.task_id, 10, 4)}
-            </Link>
-            <div className="mt-0.5 text-xs text-muted">
-              series {shortUid(row.original.series_uid)}
+        cell: ({ row }) => {
+          const t = row.original
+          const title = t.patient_name
+            ? formatPatientName(t.patient_name)
+            : shortUid(t.study_uid || t.series_uid)
+          const modelLabel = t.model_name || t.model_id
+          return (
+            <div className="min-w-[10rem]">
+              <Link
+                to={`/tasks/${t.task_id}`}
+                className="font-medium text-fg-strong hover:text-brand"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {title}
+              </Link>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted">
+                <span>{modelLabel}</span>
+                {t.modality && (
+                  <>
+                    <span>·</span>
+                    <span>{t.modality}</span>
+                  </>
+                )}
+                <span>·</span>
+                <span className="font-mono">{shortUid(t.task_id, 6, 4)}</span>
+              </div>
             </div>
-          </div>
-        ),
+          )
+        },
       },
       {
-        accessorKey: 'model_id',
+        id: 'model',
         header: '模型',
-        cell: ({ getValue }) => <span className="text-sm">{getValue<string>()}</span>,
+        accessorFn: (t) => t.model_name || t.model_id,
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-sm">
+            {row.original.model_name || row.original.model_id}
+          </span>
+        ),
       },
       {
         accessorKey: 'status',
@@ -158,14 +179,30 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
       {
         accessorKey: 'progress',
         header: '进度',
-        cell: ({ row }) => (
-          <div className="min-w-36 space-y-1">
-            <Progress value={row.original.progress} />
+        cell: ({ row }) => {
+          const task = row.original
+          const inflight = task.status === 'queued' || task.status === 'running'
+          if (inflight) {
+            return (
+              <div className="min-w-36 space-y-1">
+                <Progress value={task.progress} />
+                <div className="text-xs text-muted">
+                  {formatPercent(task.progress, 0)} · {stageLabel(task.stage)}
+                </div>
+              </div>
+            )
+          }
+          return (
             <div className="text-xs text-muted">
-              {formatPercent(row.original.progress, 0)} · {row.original.stage || '—'}
+              <div>{stageLabel(task.stage)}</div>
+              {task.status === 'succeeded' && (
+                <div className="mt-0.5 tabular-nums text-fg/80">
+                  {task.cache_hit ? '缓存命中' : formatMs(task.runtime_ms)}
+                </div>
+              )}
             </div>
-          </div>
-        ),
+          )
+        },
       },
       {
         id: 'runtime',
@@ -199,7 +236,9 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
         accessorKey: 'created_at',
         header: '创建时间',
         cell: ({ getValue }) => (
-          <span className="text-xs text-muted">{formatDateTime(getValue<string | null>())}</span>
+          <span className="whitespace-nowrap text-xs text-muted">
+            {formatDateTime(getValue<string | null>())}
+          </span>
         ),
       },
       {

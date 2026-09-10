@@ -64,3 +64,39 @@ export function shortUid(uid?: string | null, head = 8, tail = 4) {
   if (uid.length <= head + tail + 1) return uid
   return `${uid.slice(0, head)}…${uid.slice(-tail)}`
 }
+
+/** DICOM PN: Family^Given^Middle… → readable label. */
+export function formatPatientName(pn?: string | null): string {
+  if (!pn || !pn.trim()) return '未知患者'
+  const parts = pn.split('^').map((p) => p.trim()).filter(Boolean)
+  if (parts.length === 0) return '未知患者'
+  if (parts.length === 1) return parts[0]!
+  // Prefer "Given Family" for Latin; keep order for CJK-looking tokens
+  const family = parts[0]!
+  const given = parts[1]!
+  const cjk = /[\u4e00-\u9fff]/.test(family + given)
+  return cjk ? `${family}${given}` : `${given} ${family}`
+}
+
+export function formatSex(sex?: string | null): string {
+  if (!sex) return '—'
+  const s = sex.trim().toUpperCase()
+  if (s === 'M' || s === 'MALE') return '男'
+  if (s === 'F' || s === 'FEMALE') return '女'
+  if (s === 'O' || s === 'OTHER') return '其他'
+  return sex
+}
+
+/** DICOM AS e.g. 045Y / 003M → 45岁 / 3月 */
+export function formatAge(age?: string | null): string {
+  if (!age) return '—'
+  const m = /^(\d+)\s*([DWMYdwmy])?$/.exec(age.trim())
+  if (!m) return age
+  const n = Number.parseInt(m[1]!, 10)
+  const unit = (m[2] || 'Y').toUpperCase()
+  if (unit === 'Y') return `${n}岁`
+  if (unit === 'M') return `${n}月`
+  if (unit === 'W') return `${n}周`
+  if (unit === 'D') return `${n}天`
+  return age
+}

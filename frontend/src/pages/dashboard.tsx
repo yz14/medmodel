@@ -8,6 +8,8 @@ import {
   Activity,
   ArrowRight,
   RefreshCw,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import {
   flexRender,
@@ -21,17 +23,19 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import { api } from '@/lib/api'
-import { formatMs, formatNumber, formatPercent, formatRelative, shortUid } from '@/lib/format'
+import {
+  formatMs,
+  formatNumber,
+  formatPatientName,
+  formatPercent,
+  formatRelative,
+} from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
 import { KpiCard } from '@/components/KpiCard'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -41,27 +45,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
 import { primaryMetrics, taskTypeLabel } from '@/features/models/metrics'
 import type { TaskSummary } from '@/types/api'
+import { cn } from '@/lib/utils'
 
-const DIST_LABEL: Record<string, string> = {
-  segmentation: '分割',
-  detection: '检测',
-  classification: '分类',
-}
-
-/** Resolved once from CSS tokens so SVG fill works on dark first paint (N-F11). */
-function readChartColors(): string[] {
-  if (typeof window === 'undefined') {
-    return ['#3b82f6', '#0ea5e9', '#22c55e', '#f59e0b']
-  }
-  const styles = getComputedStyle(document.documentElement)
-  const keys = ['--brand', '--info', '--success', '--warning']
-  const fallback = ['#3b82f6', '#0ea5e9', '#22c55e', '#f59e0b']
-  return keys.map((k, i) => {
-    const raw = styles.getPropertyValue(k).trim()
-    return raw || fallback[i]
-  })
+function readToken(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
 
 function shortDate(iso: string): string {
@@ -80,40 +71,39 @@ export function DashboardPage() {
   })
 
   const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }])
-  const [chartColors, setChartColors] = useState(readChartColors)
+  const [chartStroke, setChartStroke] = useState(() => readToken('--surface-1', '#111'))
+  const [successFill, setSuccessFill] = useState(() => readToken('--success', '#22c55e'))
 
   useEffect(() => {
-    setChartColors(readChartColors())
+    setChartStroke(readToken('--surface-1', '#111'))
+    setSuccessFill(readToken('--success', '#22c55e'))
   }, [])
 
   const recentTasks = overview.data?.recent_tasks ?? []
 
   const columns = useMemo(
     () => [
-      columnHelper.accessor('task_id', {
-        header: '任务',
-        cell: (info) => (
-          <Link to={`/tasks/${info.getValue()}`} className="font-mono text-xs text-brand">
-            {shortUid(info.getValue())}
-          </Link>
-        ),
-      }),
-      columnHelper.accessor('model_id', {
-        header: '模型',
+      columnHelper.display({
+        id: 'patient',
+        header: '检查',
         cell: (info) => {
-          const usage = overview.data?.model_usage?.find((u) => u.model_id === info.getValue())
-          return usage?.name ?? info.getValue()
+          const t = info.row.original
+          return (
+            <div>
+              <Link to={`/tasks/${t.task_id}`} className="text-sm text-fg-strong hover:text-brand">
+                {formatPatientName(t.patient_name)}
+              </Link>
+              <div className="text-xs text-muted">
+                {t.model_name || t.model_id}
+                {t.modality ? ` · ${t.modality}` : ''}
+              </div>
+            </div>
+          )
         },
       }),
       columnHelper.accessor('status', {
         header: '状态',
         cell: (info) => <StatusBadge status={info.getValue()} />,
-      }),
-      columnHelper.accessor('progress', {
-        header: '进度',
-        cell: (info) => (
-          <span className="tabular-nums">{formatPercent(info.getValue(), 0)}</span>
-        ),
       }),
       columnHelper.accessor('runtime_ms', {
         header: '耗时',
@@ -136,7 +126,7 @@ export function DashboardPage() {
         ),
       }),
     ],
-    [overview.data?.model_usage],
+    [],
   )
 
   const table = useReactTable({
@@ -178,22 +168,39 @@ export function DashboardPage() {
   }
 
   const data = overview.data!
-  const modelDistribution = data.model_distribution ?? {}
   const queue = data.queue ?? { queued: 0, running: 0, max_concurrency: 0 }
   const modelMetrics = data.model_metrics ?? []
   const dailyTasks = data.daily_tasks ?? []
   const modelUsage = data.model_usage ?? []
-  const chartData = Object.entries(modelDistribution).map(([key, value]) => ({
-    name: DIST_LABEL[key] ?? key,
-    value,
-  }))
   const dailyChart = dailyTasks.map((d) => ({
     ...d,
     label: shortDate(d.date),
   }))
   const hasDailyActivity = dailyTasks.some((d) => d.total > 0)
+  const todaySpark = dailyTasks.map((d) => d.total)
+
+  const usageById = new Map(modelUsage.map((u) => [u.model_id, u]))
+  const modelRows = modelMetrics.map((m) => {
+    const u = usageById.get(m.id)
+    const entries = primaryMetrics(m.task_type, m.metrics, 1)
+    const failRate = u && u.total > 0 ? u.failed / u.total : 0
+    return {
+      id: m.id,
+      name: m.name,
+      task_type: m.task_type,
+      enabled: m.enabled !== false,
+      total: u?.total ?? 0,
+      succeeded: u?.succeeded ?? 0,
+      failed: u?.failed ?? 0,
+      avg_runtime_ms: u?.avg_runtime_ms ?? null,
+      primaryMetric: entries[0] ? `${entries[0].label} ${formatNumber(entries[0].value, 3)}` : '—',
+      failRate,
+    }
+  })
 
   const queueLoad = queue.queued + queue.running
+  const queueCapacity = Math.max(1, queue.max_concurrency)
+  const queuePct = Math.min(100, Math.round((queue.running / queueCapacity) * 100))
   const queueTone =
     queueLoad > queue.max_concurrency
       ? 'danger'
@@ -210,6 +217,9 @@ export function DashboardPage() {
         : successRate < 0.97
           ? 'warning'
           : 'success'
+
+  const disabledCount = modelRows.filter((m) => !m.enabled).length
+  const failingModels = modelRows.filter((m) => m.failRate >= 0.2 && m.total >= 2).length
 
   return (
     <div>
@@ -243,7 +253,7 @@ export function DashboardPage() {
         <KpiCard
           title="可用模型"
           value={formatNumber(data.kpis.model_count)}
-          hint={`已注册 ${data.registered_models}`}
+          hint={`已注册 ${data.registered_models}${disabledCount ? ` · 停用 ${disabledCount}` : ''}`}
           icon={<Boxes className="h-5 w-5" />}
         />
         <KpiCard
@@ -256,6 +266,7 @@ export function DashboardPage() {
           }
           icon={<ListTodo className="h-5 w-5" />}
           tone={data.kpis.failed_today > 0 ? 'warning' : queueTone}
+          sparkline={todaySpark}
         />
         <KpiCard
           title="任务成功率"
@@ -274,7 +285,7 @@ export function DashboardPage() {
         <Card className="xl:col-span-8">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>近 14 日任务量</CardTitle>
-            <span className="text-xs text-muted">仅统计真实任务，无数据则留空</span>
+            <span className="text-xs text-muted">仅统计真实任务</span>
           </CardHeader>
           <CardContent className="min-h-[16rem] h-64">
             {!hasDailyActivity ? (
@@ -302,7 +313,7 @@ export function DashboardPage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      background: 'var(--surface)',
+                      background: chartStroke,
                       border: '1px solid var(--border)',
                       borderRadius: 8,
                       color: 'var(--fg)',
@@ -312,20 +323,22 @@ export function DashboardPage() {
                       return row?.date ?? ''
                     }}
                   />
-                  <Legend />
                   <Bar
                     dataKey="succeeded"
                     name="成功"
                     stackId="a"
-                    fill={chartColors[2]}
+                    fill={successFill}
+                    stroke={chartStroke}
+                    strokeWidth={0}
                     isAnimationActive={false}
-                    radius={[0, 0, 0, 0]}
                   />
                   <Bar
                     dataKey="failed"
                     name="失败"
                     stackId="a"
                     fill="var(--danger, #ef4444)"
+                    stroke={chartStroke}
+                    strokeWidth={0}
                     isAnimationActive={false}
                     radius={[2, 2, 0, 0]}
                   />
@@ -337,146 +350,119 @@ export function DashboardPage() {
 
         <Card className="xl:col-span-4">
           <CardHeader>
-            <CardTitle>模型类型分布</CardTitle>
+            <CardTitle>队列与模型健康</CardTitle>
           </CardHeader>
-          <CardContent className="min-h-[16rem] h-64">
-            {chartData.every((d) => d.value === 0) ? (
-              <EmptyState title="暂无分布数据" className="py-10" />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%" minHeight={220} debounce={50}>
-                <PieChart>
-                  <Pie
-                    data={chartData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={55}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    isAnimationActive={false}
-                  >
-                    {chartData.map((_, i) => (
-                      <Cell key={i} fill={chartColors[i % chartColors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      color: 'var(--fg)',
-                    }}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+          <CardContent className="space-y-4">
+            <div>
+              <div className="mb-1.5 flex items-center justify-between text-xs">
+                <span className="text-muted">并发利用率</span>
+                <span className="tabular-nums text-fg">
+                  {queue.running} / {queue.max_concurrency}
+                </span>
+              </div>
+              <Progress value={queuePct} />
+              <p className="mt-1.5 text-xs text-muted">排队 {queue.queued} · 运行 {queue.running}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-border bg-surface-0 px-3 py-2">
+                <div className="text-[11px] text-muted">启用模型</div>
+                <div className="mt-0.5 text-lg tabular-nums text-fg-strong">
+                  {modelRows.filter((m) => m.enabled).length}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-surface-0 px-3 py-2">
+                <div className="text-[11px] text-muted">高失败率</div>
+                <div
+                  className={cn(
+                    'mt-0.5 text-lg tabular-nums',
+                    failingModels > 0 ? 'text-warning' : 'text-fg-strong',
+                  )}
+                >
+                  {failingModels}
+                </div>
+              </div>
+            </div>
+
+            <ul className="max-h-40 space-y-1.5 overflow-y-auto">
+              {modelRows.map((m) => (
+                <li key={m.id} className="flex items-center gap-2 text-xs">
+                  {m.enabled ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  )}
+                  <Link to={`/models/${m.id}`} className="min-w-0 flex-1 truncate hover:text-brand">
+                    {m.name}
+                  </Link>
+                  <span className="shrink-0 tabular-nums text-muted">
+                    {m.enabled ? `${m.succeeded}/${m.total || '—'}` : '已停用'}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-12">
-        <Card className="xl:col-span-7">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>按模型调用</CardTitle>
-            <Link to="/tasks" className="text-xs text-brand hover:underline">
-              任务中心
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {modelUsage.length === 0 ? (
-              <EmptyState title="暂无调用记录" className="py-10" />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>模型</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>调用</TableHead>
-                    <TableHead>成功</TableHead>
-                    <TableHead>失败</TableHead>
-                    <TableHead>均耗时</TableHead>
+      <Card className="mt-4">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>模型运行</CardTitle>
+          <Link to="/models" className="text-xs text-brand hover:underline">
+            模型仓库
+          </Link>
+        </CardHeader>
+        <CardContent>
+          {modelRows.length === 0 ? (
+            <EmptyState title="暂无模型" className="py-10" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>模型</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>调用</TableHead>
+                  <TableHead>成功</TableHead>
+                  <TableHead>失败</TableHead>
+                  <TableHead>均耗时</TableHead>
+                  <TableHead>主指标</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {modelRows.map((m) => (
+                  <TableRow key={m.id} className={cn(!m.enabled && 'opacity-60')}>
+                    <TableCell>
+                      <Link to={`/models/${m.id}`} className="text-fg-strong hover:text-brand">
+                        {m.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge family="tag" variant="secondary">
+                        {taskTypeLabel(m.task_type)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {m.enabled ? (
+                        <span className="text-xs text-success">启用</span>
+                      ) : (
+                        <span className="text-xs text-muted">停用</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{m.total}</TableCell>
+                    <TableCell className="tabular-nums text-success">{m.succeeded}</TableCell>
+                    <TableCell className="tabular-nums text-danger">{m.failed}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {m.avg_runtime_ms != null ? formatMs(m.avg_runtime_ms) : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted">{m.primaryMetric}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {modelUsage.map((u) => (
-                    <TableRow key={u.model_id}>
-                      <TableCell>
-                        <Link
-                          to={`/models/${u.model_id}`}
-                          className="text-fg-strong hover:text-brand"
-                        >
-                          {u.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge family="tag" variant="secondary">
-                          {taskTypeLabel(u.task_type)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="tabular-nums">{u.total}</TableCell>
-                      <TableCell className="tabular-nums text-success">{u.succeeded}</TableCell>
-                      <TableCell className="tabular-nums text-danger">{u.failed}</TableCell>
-                      <TableCell className="tabular-nums">
-                        {u.avg_runtime_ms != null ? formatMs(u.avg_runtime_ms) : '—'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-5">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>模型评估指标</CardTitle>
-            <Link to="/models" className="text-xs text-brand hover:underline">
-              查看全部
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {modelMetrics.length === 0 ? (
-              <EmptyState title="暂无模型指标" className="py-10" />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>模型</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>主指标</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {modelMetrics.map((m) => {
-                    const entries = primaryMetrics(m.task_type, m.metrics, 2)
-                    return (
-                      <TableRow key={m.id}>
-                        <TableCell>
-                          <Link to={`/models/${m.id}`} className="text-fg-strong hover:text-brand">
-                            {m.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <Badge family="tag" variant="info">
-                            {taskTypeLabel(m.task_type)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted">
-                          {entries.length === 0
-                            ? '—'
-                            : entries
-                                .map((e) => `${e.label} ${formatNumber(e.value, 3)}`)
-                                .join(' · ')}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="mt-4">
         <CardHeader className="flex-row items-center justify-between">
@@ -512,7 +498,6 @@ export function DashboardPage() {
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                        {{ asc: ' ↑', desc: ' ↓' }[header.column.getIsSorted() as string] ?? null}
                       </TableHead>
                     ))}
                   </TableRow>

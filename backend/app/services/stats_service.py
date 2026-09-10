@@ -119,6 +119,7 @@ class StatsService:
                 "name": m["name"],
                 "task_type": m["task_type"],
                 "metrics": {k: float(v) for k, v in (m.get("metrics") or {}).items()},
+                "enabled": bool(m.get("enabled", True)),
             }
             for m in models
         ]
@@ -165,7 +166,7 @@ class StatsService:
             "model_distribution": distribution,
             "daily_tasks": daily_tasks,
             "model_usage": model_usage,
-            "recent_tasks": [TaskService(self.db).task_to_dict(t) for t in recent_tasks],
+            "recent_tasks": TaskService(self.db).tasks_to_dicts(recent_tasks),
             "queue": {
                 "queued": queue_stats.queued,
                 "running": queue_stats.running,

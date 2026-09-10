@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/components/ui/sonner'
 import { ModelParamsForm } from '@/features/models/ModelParamsForm'
@@ -51,15 +50,17 @@ export function ModelDetailPage() {
       if (defaults[key] === undefined && schema.default !== undefined) defaults[key] = schema.default
     }
     setParams(defaults)
-  }, [model.data?.id])
+  }, [model.data])
 
   const patchMutation = useMutation({
     mutationFn: () => api.patchModel(modelId, { enabled, default_params: params }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['model', modelId] })
       void queryClient.invalidateQueries({ queryKey: ['models'] })
       void queryClient.invalidateQueries({ queryKey: ['model-ready', modelId] })
-      toast.success('模型配置已保存')
+      setEnabled(res.enabled)
+      setParams({ ...(res.default_params ?? {}) })
+      toast.success('模型配置已保存', { duration: 2000 })
     },
     onError: (err) => toast.error(errorMessage(err, '保存失败')),
   })
@@ -98,28 +99,13 @@ export function ModelDetailPage() {
         title={m.name}
         description={`${m.id} · v${m.version}`}
         actions={
-          <>
-            <Link
-              to="/models"
-              className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-surface-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              返回
-            </Link>
-            <Button
-              onClick={() => {
-                if (!paramsValid) {
-                  toast.error('请修正模型参数后再保存')
-                  return
-                }
-                patchMutation.mutate()
-              }}
-              disabled={patchMutation.isPending}
-            >
-              <Save className="h-4 w-4" />
-              保存
-            </Button>
-          </>
+          <Link
+            to="/models"
+            className="inline-flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-surface-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回
+          </Link>
         }
       />
 
@@ -130,7 +116,7 @@ export function ModelDetailPage() {
         {ready.data?.ready ? (
           <span className="inline-flex items-center gap-1 text-xs text-success" data-testid="model-ready">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            Ready · {ready.data.message}
+            就绪 · {ready.data.message}
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 text-xs text-warning">
@@ -140,16 +126,8 @@ export function ModelDetailPage() {
         )}
       </div>
 
-      <Tabs defaultValue="overview">
-        <TabsList>
-          <TabsTrigger value="overview">概览</TabsTrigger>
-          <TabsTrigger value="inputs">输入约束</TabsTrigger>
-          <TabsTrigger value="outputs">输出</TabsTrigger>
-          <TabsTrigger value="metrics">指标</TabsTrigger>
-          <TabsTrigger value="config">配置</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview">
+      <div className="grid gap-4 xl:grid-cols-12">
+        <div className="space-y-4 xl:col-span-7">
           <Card>
             <CardHeader>
               <CardTitle>模型卡</CardTitle>
@@ -191,92 +169,12 @@ export function ModelDetailPage() {
                   <dd>{taskTypeLabel(m.task_type)}</dd>
                 </div>
               </dl>
-              {metricEntries.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {metricEntries.slice(0, 4).map((e) => (
-                    <div key={e.key} className="rounded-lg border border-border px-3 py-2">
-                      <div className="text-xs text-muted">{e.label}</div>
-                      <div className="mt-0.5 text-base tabular-nums text-fg-strong">
-                        {formatNumber(e.value, 3)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="inputs">
           <Card>
             <CardHeader>
-              <CardTitle>输入约束</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {constraints.length === 0 ? (
-                <EmptyState title="未声明输入约束" className="py-8" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>约束项</TableHead>
-                      <TableHead>取值</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {constraints.map((row) => (
-                      <TableRow key={row.key}>
-                        <TableCell className="text-fg">{row.label}</TableCell>
-                        <TableCell className="tabular-nums text-muted">{row.value}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="outputs">
-          <Card>
-            <CardHeader>
-              <CardTitle>输出定义</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(m.outputs ?? []).length === 0 ? (
-                <EmptyState title="未声明输出" className="py-8" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>名称</TableHead>
-                      <TableHead>类型</TableHead>
-                      <TableHead>说明</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(m.outputs ?? []).map((o) => (
-                      <TableRow key={o.name}>
-                        <TableCell className="font-medium text-fg">{o.name}</TableCell>
-                        <TableCell>
-                          <Badge family="tag" variant="secondary">
-                            {taskTypeLabel(String(o.result_type))}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted">{o.description || '—'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="metrics">
-          <Card>
-            <CardHeader>
-              <CardTitle>评估指标 · {taskTypeLabel(m.task_type)}</CardTitle>
+              <CardTitle>评估指标</CardTitle>
             </CardHeader>
             <CardContent>
               {metricEntries.length === 0 ? (
@@ -295,12 +193,82 @@ export function ModelDetailPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="config">
-          <Card>
-            <CardHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>输入约束</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {constraints.length === 0 ? (
+                  <p className="text-xs text-muted">未声明输入约束</p>
+                ) : (
+                  <Table>
+                    <TableBody>
+                      {constraints.map((row) => (
+                        <TableRow key={row.key}>
+                          <TableCell className="text-fg">{row.label}</TableCell>
+                          <TableCell className="tabular-nums text-muted">{row.value}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>输出定义</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {(m.outputs ?? []).length === 0 ? (
+                  <p className="text-xs text-muted">未声明输出</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>名称</TableHead>
+                        <TableHead>类型</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(m.outputs ?? []).map((o) => (
+                        <TableRow key={o.name}>
+                          <TableCell className="font-medium text-fg">{o.name}</TableCell>
+                          <TableCell>
+                            <Badge family="tag" variant="secondary">
+                              {taskTypeLabel(String(o.result_type))}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <div className="xl:col-span-5">
+          <Card className="sticky top-4">
+            <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>运行配置</CardTitle>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!paramsValid) {
+                    toast.error('请修正模型参数后再保存')
+                    return
+                  }
+                  patchMutation.mutate()
+                }}
+                disabled={patchMutation.isPending}
+              >
+                <Save className="h-4 w-4" />
+                保存
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
@@ -308,7 +276,7 @@ export function ModelDetailPage() {
                 <Switch checked={enabled} onCheckedChange={setEnabled} />
               </div>
               <ModelParamsForm
-                key={m.id}
+                key={`${m.id}:${JSON.stringify(m.default_params ?? {})}`}
                 schema={asJsonSchema(m.params_schema)}
                 values={params}
                 onChange={setParams}
@@ -316,8 +284,8 @@ export function ModelDetailPage() {
               />
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
     </div>
   )
 }

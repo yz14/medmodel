@@ -63,6 +63,7 @@ class StudyLastTask(BaseModel):
 
     task_id: str
     model_id: str
+    model_name: str | None = None
     status: TaskStatusLiteral | str
     progress: float = 0.0
     message: str | None = None
@@ -149,6 +150,12 @@ class TaskSummary(BaseModel):
     study_uid: str | None = None
     model_id: str
     model_version: str | None = None
+    # Hospital-facing denormalized fields (from Study + registry).
+    patient_name: str | None = None
+    patient_id: str | None = None
+    modality: str | None = None
+    study_description: str | None = None
+    model_name: str | None = None
     params: JsonDict = Field(default_factory=dict)
     status: TaskStatusLiteral | str
     stage: str | None = None
@@ -229,6 +236,7 @@ class ModelMetricItem(BaseModel):
     name: str
     task_type: TaskTypeLiteral | str
     metrics: dict[str, float] = Field(default_factory=dict)
+    enabled: bool = True
 class DailyTaskPoint(BaseModel):
 
     date: str

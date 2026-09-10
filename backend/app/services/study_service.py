@@ -371,9 +371,15 @@ class StudyService:
 
     @staticmethod
     def last_task_to_dict(task: TaskRow) -> dict[str, Any]:
+        from app.models_hub.registry import registry
+
+        model_name: str | None = None
+        if task.model_id in registry:
+            model_name = registry.get(task.model_id).spec.name
         return {
             "task_id": task.task_id,
             "model_id": task.model_id,
+            "model_name": model_name,
             "status": task.status,
             "progress": float(task.progress or 0.0),
             "message": task.message,

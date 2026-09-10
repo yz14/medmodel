@@ -15,7 +15,7 @@ from app.domain.contracts import InferenceContext, InferenceResult, ModelPlugin,
 from app.domain.enums import TaskStage, TaskStatus
 from app.infra.config import get_settings
 from app.infra.logging import get_logger, bind_trace_id, trace_id_var
-from app.infra.orm import ArtifactRow, SeriesRow, TaskLogRow, TaskRow
+from app.infra.orm import ArtifactRow, SeriesRow, StudyRow, TaskLogRow, TaskRow
 from app.infra.queue import get_task_queue
 from app.infra.storage import StorageService
 from app.infra.timeutil import utc_iso
@@ -334,13 +334,29 @@ class TaskService:
             except ValueError:
                 path.resolve().relative_to(self.storage.settings.storage_dir.resolve())
         return path, art.media_type or "application/octet-stream"
-    def task_to_dict(self, task: TaskRow, include_logs: bool = False) -> dict[str, Any]:
+    def task_to_dict(
+        self,
+        task: TaskRow,
+        include_logs: bool = False,
+        *,
+        study: StudyRow | None = None,
+    ) -> dict[str, Any]:
+        if study is None and task.study_uid:
+            study = self.db.scalar(select(StudyRow).where(StudyRow.study_uid == task.study_uid))
+        model_name: str | None = None
+        if task.model_id in registry:
+            model_name = registry.get(task.model_id).spec.name
         data: dict[str, Any] = {
             "task_id": task.task_id,
             "series_uid": task.series_uid,
             "study_uid": task.study_uid,
             "model_id": task.model_id,
             "model_version": task.model_version,
+            "model_name": model_name,
+            "patient_name": study.patient_name if study else None,
+            "patient_id": study.patient_id if study else None,
+            "modality": study.modality if study else None,
+            "study_description": study.study_description if study else None,
             "params": task.params,
             "status": task.status,
             "stage": task.stage,
@@ -378,6 +394,19 @@ class TaskService:
                 for log in task.logs
             ]
         return data
+
+    def tasks_to_dicts(self, tasks: list[TaskRow], include_logs: bool = False) -> list[dict[str, Any]]:
+        """Batch-enrich tasks with Study demographics (avoids N+1)."""
+        study_uids = {t.study_uid for t in tasks if t.study_uid}
+        studies: dict[str, StudyRow] = {}
+        if study_uids:
+            rows = self.db.scalars(select(StudyRow).where(StudyRow.study_uid.in_(study_uids))).all()
+            studies = {s.study_uid: s for s in rows}
+        return [
+            self.task_to_dict(t, include_logs=include_logs, study=studies.get(t.study_uid or ""))
+            for t in tasks
+        ]
+
     def _add_log(self, task_id: str, message: str, *, stage: str | None = None, level: str = "info") -> None:
         self.db.add(TaskLogRow(task_id=task_id, level=level, stage=stage, message=message))
 

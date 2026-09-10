@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, RotateCcw, XCircle, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
-import { formatDateTime, formatMs, formatPercent } from '@/lib/format'
+import { formatDateTime, formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
 import { StatusBadge } from '@/components/StatusBadge'
 import { EmptyState } from '@/components/EmptyState'
@@ -17,6 +17,7 @@ import { TaskLogsTimeline } from '@/features/tasks/TaskLogsTimeline'
 import { StageGantt } from '@/features/tasks/StageGantt'
 import { TaskResultCards, groupArtifacts } from '@/features/tasks/TaskResultCards'
 import { useTaskSSE } from '@/features/tasks/useTaskSSE'
+import { stageLabel } from '@/features/tasks/stages'
 import type { TaskStatus } from '@/types/api'
 
 export function TaskDetailPage() {
@@ -47,7 +48,9 @@ export function TaskDetailPage() {
     mutationFn: () => api.cancelTask(taskId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['task', taskId] })
-      toast.success('已取消任务')
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success('已取消任务', { duration: 2000 })
     },
     onError: (err) => toast.error(errorMessage(err, '取消失败')),
   })
@@ -56,7 +59,8 @@ export function TaskDetailPage() {
     mutationFn: () => api.retryTask(taskId),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      toast.success('已重新提交任务')
+      void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success('已重新提交任务', { duration: 2000 })
       navigate(`/tasks/${res.task_id}`)
     },
     onError: (err) => toast.error(errorMessage(err, '重试失败')),
@@ -95,11 +99,22 @@ export function TaskDetailPage() {
       ? (t.stage_timings as Record<string, number>)
       : null
 
+  const patientTitle = formatPatientName(t.patient_name)
+  const modelLabel = t.model_name || t.model_id
+  const timeLabel = t.created_at ? formatDateTime(t.created_at) : '—'
+
   return (
     <div>
       <PageHeader
-        title={`任务 ${t.task_id.slice(0, 12)}…`}
-        description={`${t.model_id} · series ${t.series_uid.slice(0, 18)}…`}
+        title={`${patientTitle} · ${modelLabel}`}
+        description={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>{timeLabel}</span>
+            {t.modality && <span>· {t.modality}</span>}
+            {t.study_description && <span>· {t.study_description}</span>}
+            <span className="font-mono text-muted">· {shortUid(t.task_id, 10, 4)}</span>
+          </span>
+        }
         actions={
           <>
             <Link
@@ -151,7 +166,7 @@ export function TaskDetailPage() {
                 <StatusBadge status={t.status} />
                 <Progress value={t.progress} />
                 <p className="text-sm text-muted">
-                  {formatPercent(t.progress, 0)} · {t.stage || '—'} · {t.message}
+                  {formatPercent(t.progress, 0)} · {stageLabel(t.stage)} · {t.message}
                 </p>
                 <dl className="grid grid-cols-2 gap-3 text-xs">
                   <div>

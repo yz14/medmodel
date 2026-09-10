@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Database,
@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui-store'
 import { Button } from '@/components/ui/button'
 
-/** FE-5: clinical / annotation / viewer-home 从主导航收口；阅片从数据中心进入。 */
 const NAV = [
   { to: '/', label: '总览', icon: LayoutDashboard, end: true },
   { to: '/data', label: '数据中心', icon: Database },
@@ -34,15 +33,38 @@ export function AppSidebar() {
         collapsed ? 'w-[72px]' : 'w-60',
       )}
     >
-      <div className={cn('flex h-14 items-center gap-2 border-b border-border px-3', collapsed && 'justify-center')}>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">
-          V
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-fg-strong">VoxFlow</div>
-            <div className="truncate text-xs text-muted">医学影像 AI 模型平台</div>
+      <div
+        className={cn(
+          'flex h-14 items-center gap-2 border-b border-border px-3',
+          collapsed ? 'justify-center' : 'justify-between',
+        )}
+      >
+        <Link
+          to="/"
+          className={cn('flex min-w-0 items-center gap-2', collapsed && 'justify-center')}
+          title="VoxFlow 首页"
+          aria-label="VoxFlow 首页"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">
+            V
           </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-fg-strong">VoxFlow</div>
+              <div className="truncate text-xs text-muted">医学影像 AI</div>
+            </div>
+          )}
+        </Link>
+        {!viewerShellActive && !collapsed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={toggleSidebar}
+            aria-label="收起侧栏"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
         )}
       </div>
 
@@ -69,19 +91,19 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-border p-2">
-        <Button
-          variant="ghost"
-          size={collapsed ? 'icon' : 'sm'}
-          className={cn('w-full', !collapsed && 'justify-start')}
-          onClick={toggleSidebar}
-          disabled={viewerShellActive}
-          title={viewerShellActive ? '阅片模式下侧栏已收起' : undefined}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          {!collapsed && '收起侧栏'}
-        </Button>
-      </div>
+      {collapsed && !viewerShellActive && (
+        <div className="border-t border-border p-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-full"
+            onClick={toggleSidebar}
+            aria-label="展开侧栏"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </aside>
   )
 }
