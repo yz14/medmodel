@@ -131,7 +131,14 @@ function SliceInput({ sliceCount }: { sliceCount: number }) {
   )
 }
 
-export function ViewerToolbar({ sliceCount }: { sliceCount: number }) {
+export function ViewerToolbar({
+  sliceCount,
+  seriesCount = 1,
+}: {
+  sliceCount: number
+  /** Study series count — multi-viewport disabled when < 2 (#4). */
+  seriesCount?: number
+}) {
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
   const setWindow = useViewerStore((s) => s.setWindow)
@@ -301,19 +308,28 @@ export function ViewerToolbar({ sliceCount }: { sliceCount: number }) {
           <DropdownMenuLabel>挂片布局</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={viewportLayout}
-            onValueChange={(v) => setViewportLayout(v as ViewportLayout)}
+            onValueChange={(v) => {
+              if (v !== '1x1' && seriesCount < 2) return
+              setViewportLayout(v as ViewportLayout)
+            }}
           >
             <DropdownMenuRadioItem value="1x1">
               <RectangleVertical className="mr-2 h-4 w-4" />
               单视口
             </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="1x2">
+            <DropdownMenuRadioItem value="1x2" disabled={seriesCount < 2}>
               <LayoutGrid className="mr-2 h-4 w-4" />
               1×2
+              {seriesCount < 2 && (
+                <span className="ml-auto text-[10px] text-muted">需 ≥2 序列</span>
+              )}
             </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="2x2">
+            <DropdownMenuRadioItem value="2x2" disabled={seriesCount < 2}>
               <Grid2x2 className="mr-2 h-4 w-4" />
               2×2
+              {seriesCount < 2 && (
+                <span className="ml-auto text-[10px] text-muted">需 ≥2 序列</span>
+              )}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
 

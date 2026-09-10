@@ -1,13 +1,20 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { Upload, Sparkles } from 'lucide-react'
+import { FolderOpen, Upload } from 'lucide-react'
 import { api } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { toast } from '@/components/ui/sonner'
-import { formatBytes, validateUploadFiles } from '@/features/data/uploadSchema'
+import { collectFilesFromDataTransfer } from '@/features/data/collectDroppedFiles'
+import {
+  filterUploadCandidates,
+  formatBytes,
+  UPLOAD_LIMIT_HINT,
+  uploadDisplayName,
+  validateUploadFiles,
+} from '@/features/data/uploadSchema'
 
 export function UploadDialog({
   open,
@@ -16,18 +23,22 @@ export function UploadDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [progress, setProgress] = useState(0)
   const [canRetry, setCanRetry] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const queryClient = useQueryClient()
 
   const resetLocal = () => {
     setFiles([])
     setProgress(0)
     setCanRetry(false)
-    if (inputRef.current) inputRef.current.value = ''
+    setDragging(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (folderInputRef.current) folderInputRef.current.value = ''
   }
 
   useEffect(() => {
@@ -37,12 +48,20 @@ export function UploadDialog({
     resetLocal()
   }, [open])
 
-  const pickFiles = (list: FileList | File[] | null) => {
-    const next = Array.from(list ?? [])
+  const pickFiles = (list: FileList | File[] | null, { fromFolder = false } = {}) => {
+    const raw = Array.from(list ?? [])
+    const next = filterUploadCandidates(raw)
     setFiles(next)
     setProgress(0)
     setCanRetry(false)
-    if (!next.length) return
+    if (!raw.length) return
+    if (!next.length) {
+      toast.error(fromFolder ? '文件夹中未找到 DICOM 或 ZIP' : '请选择 DICOM 或 ZIP 文件')
+      return
+    }
+    if (next.length < raw.length) {
+      toast.message(`已忽略 ${raw.length - next.length} 个非影像文件`)
+    }
     const check = validateUploadFiles(next)
     if (!check.ok) toast.error(check.message)
   }
@@ -75,17 +94,6 @@ export function UploadDialog({
     },
   })
 
-  const seedMutation = useMutation({
-    mutationFn: api.seedDemo,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['studies'] })
-      void queryClient.invalidateQueries({ queryKey: ['overview'] })
-      toast.success('演示数据已生成')
-      onOpenChange(false)
-    },
-    onError: (err) => toast.error(errorMessage(err, '生成失败')),
-  })
-
   const startUpload = () => {
     const check = validateUploadFiles(files)
     if (!check.ok) {
@@ -97,7 +105,7 @@ export function UploadDialog({
     uploadMutation.mutate(files)
   }
 
-  const busy = uploadMutation.isPending || seedMutation.isPending
+  const busy = uploadMutation.isPending
   const totalBytes = files.reduce((s, f) => s + f.size, 0)
 
   return (
@@ -110,35 +118,85 @@ export function UploadDialog({
         onOpenChange(v)
       }}
     >
-      <DialogContent title="上传 DICOM / ZIP" onClose={() => onOpenChange(false)}>
+      <DialogContent title="上传影像" onClose={() => onOpenChange(false)}>
         <div className="space-y-4">
-          <button
-            type="button"
-            className="flex w-full flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface-0 px-4 py-10 text-center hover:bg-surface-2 disabled:opacity-60"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
+          <div
+            className={`flex w-full flex-col items-center justify-center rounded-xl border border-dashed px-4 py-8 text-center transition-colors ${
+              dragging
+                ? 'border-brand bg-brand/5'
+                : 'border-border bg-surface-0 hover:bg-surface-2'
+            } ${busy ? 'pointer-events-none opacity-60' : ''}`}
+            onDragEnter={(e) => {
+              e.preventDefault()
+              if (!busy) setDragging(true)
+            }}
             onDragOver={(e) => e.preventDefault()}
+            onDragLeave={(e) => {
+              e.preventDefault()
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return
+              setDragging(false)
+            }}
             onDrop={(e) => {
               e.preventDefault()
+              setDragging(false)
               if (busy) return
-              pickFiles(e.dataTransfer.files)
+              void collectFilesFromDataTransfer(e.dataTransfer).then((list) =>
+                pickFiles(list, { fromFolder: true }),
+              )
             }}
           >
             <Upload className="mb-2 h-6 w-6 text-brand" />
-            <div className="text-sm text-fg-strong">拖拽文件到此处，或点击选择</div>
-            <div className="mt-1 text-xs text-muted">支持 .dcm / .zip 多文件</div>
-          </button>
+            <div className="text-sm text-fg-strong">拖拽文件或文件夹到此处</div>
+            <div className="mt-1 text-xs text-muted">支持 .dcm / .dicom / .zip，以及无扩展名 DICOM</div>
+            <div className="mt-1 text-xs text-muted">{UPLOAD_LIMIT_HINT}</div>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                选择文件 / ZIP
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => folderInputRef.current?.click()}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                选择文件夹
+              </Button>
+            </div>
+          </div>
+
           <input
-            ref={inputRef}
+            ref={fileInputRef}
             type="file"
             multiple
-            accept=".dcm,.zip,application/dicom,application/zip"
+            accept=".dcm,.dicom,.zip,application/dicom,application/zip"
             className="hidden"
             disabled={busy}
-            onChange={(e) => {
-              pickFiles(e.target.files)
-            }}
+            onChange={(e) => pickFiles(e.target.files)}
           />
+          <input
+            ref={(el) => {
+              folderInputRef.current = el
+              if (el) {
+                el.setAttribute('webkitdirectory', '')
+                el.setAttribute('directory', '')
+              }
+            }}
+            type="file"
+            multiple
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => pickFiles(e.target.files, { fromFolder: true })}
+          />
+
           {files.length > 0 && (
             <div className="space-y-1">
               <div className="flex justify-between text-xs text-muted">
@@ -156,7 +214,9 @@ export function UploadDialog({
               </div>
               <div className="max-h-32 overflow-auto rounded-lg border border-border bg-surface-0 p-2 text-xs text-muted">
                 {files.map((f) => (
-                  <div key={`${f.name}-${f.size}-${f.lastModified}`}>{f.name}</div>
+                  <div key={`${uploadDisplayName(f)}-${f.size}-${f.lastModified}`}>
+                    {uploadDisplayName(f)}
+                  </div>
                 ))}
               </div>
             </div>
@@ -175,20 +235,9 @@ export function UploadDialog({
               重试上传
             </Button>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={!files.length || busy} onClick={startUpload}>
-              {uploadMutation.isPending ? '上传中…' : '开始上传'}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              data-testid="seed-demo"
-              onClick={() => seedMutation.mutate()}
-            >
-              <Sparkles className="h-4 w-4" />
-              {seedMutation.isPending ? '生成中…' : '生成演示数据'}
-            </Button>
-          </div>
+          <Button disabled={!files.length || busy} onClick={startUpload}>
+            {uploadMutation.isPending ? '上传中…' : '开始上传'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

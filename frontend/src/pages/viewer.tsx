@@ -86,6 +86,11 @@ export function ViewerPage() {
     if (!seriesUid || !series.some((s) => s.series_uid === seriesUid)) {
       setSeriesUid(series[0]!.series_uid)
     }
+    // #4: single-series studies cannot use multi-viewport (would show N identical copies)
+    if (series.length < 2) {
+      const layout = useViewerStore.getState().viewportLayout
+      if (layout !== '1x1') useViewerStore.getState().setViewportLayout('1x1')
+    }
   }, [studyQuery.data, seriesUid, setSeriesUid])
 
   const instancesQuery = useQuery({
@@ -198,7 +203,10 @@ export function ViewerPage() {
         <ResizablePanelGroup direction="horizontal" className="min-h-0 min-w-0 flex-1">
           <ResizablePanel defaultSize={rightOpen ? 72 : 100} minSize={40} order={1}>
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-              <ViewerToolbar sliceCount={sliceCount} />
+              <ViewerToolbar
+                sliceCount={sliceCount}
+                seriesCount={study.series?.length ?? 0}
+              />
               {seriesUid && sliceCount > 0 ? (
                 <div className="flex min-h-0 flex-1">
                   <ViewportGrid

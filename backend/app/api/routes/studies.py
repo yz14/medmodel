@@ -43,6 +43,34 @@ def _stream_one_file(file_obj: object, dest: Path, *, budget: int) -> int:
     return written
 
 
+def _safe_upload_dest(tmp_root: Path, filename: str | None) -> Path:
+    """
+    Map an upload filename (possibly a relative path from folder picks) onto tmp_root.
+    Rejects absolute paths / .. traversal; uniquifies basename collisions.
+    """
+    raw = (filename or "upload.dcm").replace("\\", "/")
+    parts = [p for p in Path(raw).parts if p not in ("", ".", "..")]
+    # Drop Windows drive segments like "C:"
+    parts = [p for p in parts if not (len(p) >= 2 and p[1] == ":")]
+    if not parts:
+        parts = ["upload.dcm"]
+    dest = tmp_root.joinpath(*parts)
+    try:
+        dest.resolve().relative_to(tmp_root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"非法上传路径: {filename}") from exc
+    if not dest.exists():
+        return dest
+    stem, suffix = dest.stem, dest.suffix
+    parent = dest.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}_{i}{suffix}"
+        if not candidate.exists():
+            return candidate
+        i += 1
+
+
 @router.post("/studies/upload", response_model=StudyUploadResponse)
 async def upload_studies(
     files: list[UploadFile] = File(...),
@@ -68,8 +96,13 @@ async def upload_studies(
     total = 0
     try:
         for f in files:
-            name = Path(f.filename or "upload.dcm").name
-            dest = tmp_root / name
+            try:
+                dest = _safe_upload_dest(tmp_root, f.filename)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "UPLOAD_INVALID", "message": str(exc)},
+                ) from exc
             remaining = settings.max_upload_bytes - total
             if remaining <= 0:
                 raise _UploadLimitError(

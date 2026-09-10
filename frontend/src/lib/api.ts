@@ -83,7 +83,11 @@ export const api = {
     opts?: { onProgress?: (ratio: number) => void; signal?: AbortSignal },
   ) => {
     const form = new FormData()
-    files.forEach((f) => form.append('files', f))
+    files.forEach((f) => {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath
+      const name = rel && rel.length > 0 ? rel : f.name
+      form.append('files', f, name)
+    })
     if (!opts?.onProgress) {
       return request<StudyUploadResponse>('/api/v1/studies/upload', {
         method: 'POST',

@@ -16,8 +16,10 @@ function cellCount(layout: ViewportLayout): number {
 }
 
 /**
- * Simple hanging protocol (FE-3): 1×1 / 1×2 / 2×2 cells sharing the same series & store
- * overlays. Only the active cell receives pointer / wheel input.
+ * Hanging layout (FE-3 / #4): 1×1 / 1×2 / 2×2.
+ * Cells currently share series & store (linked W/L / slice). Toolbar disables
+ * multi-viewport when the study has fewer than 2 series to avoid identical copies.
+ * Per-cell independent state + drag-to-cell is deferred.
  */
 export function ViewportGrid({
   seriesUid,

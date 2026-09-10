@@ -1,9 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { PageHeader } from '@/components/PageHeader'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { toast } from '@/components/ui/sonner'
 import {
   Select,
   SelectContent,
@@ -50,6 +54,16 @@ export function SettingsPage() {
   const experimentalCs3d = useUiStore((s) => s.experimentalCs3d)
   const setExperimentalCs3d = useUiStore((s) => s.setExperimentalCs3d)
   const health = useQuery({ queryKey: ['health'], queryFn: api.health })
+  const queryClient = useQueryClient()
+  const seedMutation = useMutation({
+    mutationFn: api.seedDemo,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['studies'] })
+      void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success('演示数据已生成')
+    },
+    onError: (err) => toast.error(errorMessage(err, '生成失败')),
+  })
 
   return (
     <div>
@@ -119,7 +133,9 @@ export function SettingsPage() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="text-sm text-fg-strong">默认布局</div>
-                <div className="text-xs text-muted">打开检查时的视口网格</div>
+                <div className="text-xs text-muted">
+                  打开检查时的视口网格；仅当检查含 ≥2 个序列时启用 1×2 / 2×2
+                </div>
               </div>
               <Select
                 value={defaultViewportLayout}
@@ -184,6 +200,26 @@ export function SettingsPage() {
                 aria-label="启用 Cornerstone3D Spike"
               />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>演示数据</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm text-fg-strong">生成演示胸部 CT</div>
+              <div className="text-xs text-muted">写入示例检查，便于快速体验阅片与推理</div>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={seedMutation.isPending}
+              onClick={() => seedMutation.mutate()}
+            >
+              <Sparkles className="h-4 w-4" />
+              {seedMutation.isPending ? '生成中…' : '生成演示数据'}
+            </Button>
           </CardContent>
         </Card>
 

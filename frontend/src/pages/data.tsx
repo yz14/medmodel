@@ -1,14 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, RefreshCw, Search } from 'lucide-react'
+import { Upload, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from '@/components/ui/sonner'
 import { FilterChips } from '@/components/DataTable/FilterChips'
 import { StudiesTable } from '@/features/data/StudiesTable'
 import { StudyDrawer } from '@/features/data/StudyDrawer'
@@ -20,10 +22,21 @@ const DATA_DEFAULTS = { q: '', modality: '', page: '1' }
 
 export function DataPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { filters, setFilters, clearFilter, clearAll } = useUrlFilters(DATA_DEFAULTS)
   const [qInput, setQInput] = useState(filters.q)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [selected, setSelected] = useState<StudySummary | null>(null)
+
+  const seedMutation = useMutation({
+    mutationFn: api.seedDemo,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['studies'] })
+      void queryClient.invalidateQueries({ queryKey: ['overview'] })
+      toast.success('演示数据已生成')
+    },
+    onError: (err) => toast.error(errorMessage(err, '生成失败')),
+  })
 
   useEffect(() => {
     setQInput(filters.q)
@@ -166,12 +179,23 @@ export function DataPage() {
       {studies.data && studies.data.items.length === 0 && (
         <EmptyState
           title="暂无影像数据"
-          description="上传 DICOM/ZIP，或一键生成演示胸部 CT。"
+          description="上传 DICOM 文件夹或 ZIP，也可一键生成演示胸部 CT。"
           action={
-            <Button onClick={() => setUploadOpen(true)}>
-              <Upload className="h-4 w-4" />
-              上传 / 生成演示
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button onClick={() => setUploadOpen(true)}>
+                <Upload className="h-4 w-4" />
+                上传影像
+              </Button>
+              <Button
+                variant="secondary"
+                data-testid="seed-demo"
+                disabled={seedMutation.isPending}
+                onClick={() => seedMutation.mutate()}
+              >
+                <Sparkles className="h-4 w-4" />
+                {seedMutation.isPending ? '生成中…' : '生成演示数据'}
+              </Button>
+            </div>
           }
         />
       )}
