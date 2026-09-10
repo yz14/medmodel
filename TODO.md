@@ -256,6 +256,7 @@
 6. **多视口与上传**：#4 #15。
    - [x] 2026-09-10 Round6 已落地：单序列检查禁用 1×2/2×2 并强制回落 1×1（避免 N 份相同图）；上传支持选文件夹 + 拖拽目录递归展开、限额提示（500/512MiB）、无扩展名 DICOM；演示数据迁至数据空态与设置页；FormData 保留相对路径 + 后端安全落盘去重名；nginx `client_max_body_size 512m`。
 7. **设计系统收口**：#20 #21 #23 #27 #28 #29 #30 #42 #43 —— token 单一来源、动画库、图标尺寸、字体顺序、修 DOM 嵌套。
+   - [x] 2026-09-10 Round7 已落地：`index.html` 预刷主题脚本 + PageFallback 去双 padding；DataTable 仅可排序列包 button + lucide 排序图标；安装 `tw-animate-css` 并补齐 Sheet/Dialog/Select/Menu/Tooltip/Popover 进出场；`--color-*` 为源、`--*` 别名层，图表/Sparkline 读 `--color-*`；Inter 优先于 Noto SC；Card 去 `shadow-sm`；壳层图标与 Badge 字号收口；任务类型徽标改 secondary（#28 饼图已在 Round4 移除）。全量 8pt 间距规范留后续。
 
 ### G. 顺带发现（非外观，但必须修）
 

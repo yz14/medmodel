@@ -219,7 +219,7 @@ export function ViewerToolbar({
             className="h-8 max-w-[7rem] shrink-0 gap-1 px-2 text-xs"
             aria-label="窗宽窗位预设"
           >
-            <Contrast className="h-3.5 w-3.5 shrink-0" />
+            <Contrast className="h-4 w-4 shrink-0" />
             <span className="truncate">{activePreset}</span>
           </Button>
         </DropdownMenuTrigger>

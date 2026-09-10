@@ -26,12 +26,12 @@ export function Sparkline({
 
   const stroke =
     tone === 'danger'
-      ? 'var(--danger)'
+      ? 'var(--color-danger)'
       : tone === 'warning'
-        ? 'var(--warning)'
+        ? 'var(--color-warning)'
         : tone === 'success'
-          ? 'var(--success)'
-          : 'var(--brand)'
+          ? 'var(--color-success)'
+          : 'var(--color-brand)'
 
   return (
     <svg

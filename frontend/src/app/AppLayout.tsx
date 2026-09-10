@@ -9,7 +9,7 @@ import { applyTheme, useUiStore } from '@/stores/ui-store'
 
 function PageFallback() {
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <Skeleton className="h-10 w-64" />
       <Skeleton className="h-40 w-full" />
       <Skeleton className="h-64 w-full" />

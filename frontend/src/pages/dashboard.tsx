@@ -6,7 +6,10 @@ import {
   Boxes,
   ListTodo,
   Activity,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
+  ChevronsUpDown,
   RefreshCw,
   CheckCircle2,
   XCircle,
@@ -71,12 +74,12 @@ export function DashboardPage() {
   })
 
   const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }])
-  const [chartStroke, setChartStroke] = useState(() => readToken('--surface-1', '#111'))
-  const [successFill, setSuccessFill] = useState(() => readToken('--success', '#22c55e'))
+  const [chartStroke, setChartStroke] = useState(() => readToken('--color-surface-1', '#111827'))
+  const [successFill, setSuccessFill] = useState(() => readToken('--color-success', '#22c55e'))
 
   useEffect(() => {
-    setChartStroke(readToken('--surface-1', '#111'))
-    setSuccessFill(readToken('--success', '#22c55e'))
+    setChartStroke(readToken('--color-surface-1', '#111827'))
+    setSuccessFill(readToken('--color-success', '#22c55e'))
   }, [])
 
   const recentTasks = overview.data?.recent_tasks ?? []
@@ -295,16 +298,16 @@ export function DashboardPage() {
             ) : (
               <ResponsiveContainer width="100%" height="100%" minHeight={220} debounce={50}>
                 <BarChart data={dailyChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fill: 'var(--muted)', fontSize: 12 }}
-                    axisLine={{ stroke: 'var(--border)' }}
+                    tick={{ fill: 'var(--color-muted)', fontSize: 12 }}
+                    axisLine={{ stroke: 'var(--color-border)' }}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fill: 'var(--muted)', fontSize: 12 }}
+                    tick={{ fill: 'var(--color-muted)', fontSize: 12 }}
                     axisLine={false}
                     tickLine={false}
                     width={32}
@@ -312,9 +315,9 @@ export function DashboardPage() {
                   <Tooltip
                     contentStyle={{
                       background: chartStroke,
-                      border: '1px solid var(--border)',
+                      border: '1px solid var(--color-border)',
                       borderRadius: 8,
-                      color: 'var(--fg)',
+                      color: 'var(--color-fg)',
                     }}
                     labelFormatter={(_, payload) => {
                       const row = payload?.[0]?.payload as { date?: string } | undefined
@@ -334,7 +337,7 @@ export function DashboardPage() {
                     dataKey="failed"
                     name="失败"
                     stackId="a"
-                    fill="var(--danger, #ef4444)"
+                    fill="var(--color-danger, #ef4444)"
                     stroke={chartStroke}
                     strokeWidth={0}
                     isAnimationActive={false}
@@ -489,15 +492,30 @@ export function DashboardPage() {
               <TableHeader>
                 {table.getHeaderGroups().map((hg) => (
                   <TableRow key={hg.id}>
-                    {hg.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        className="cursor-pointer select-none"
-                        onClick={header.column.getToggleSortingHandler()}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))}
+                    {hg.headers.map((header) => {
+                      const sorted = header.column.getIsSorted()
+                      return (
+                        <TableHead
+                          key={header.id}
+                          className="cursor-pointer select-none"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            {sorted === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                            ) : sorted === 'desc' ? (
+                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                            ) : (
+                              <ChevronsUpDown
+                                className="h-3.5 w-3.5 shrink-0 text-muted/60"
+                                aria-hidden
+                              />
+                            )}
+                          </span>
+                        </TableHead>
+                      )
+                    })}
                   </TableRow>
                 ))}
               </TableHeader>

@@ -79,7 +79,7 @@ export function AppTopbar() {
 
       <div className="mx-auto hidden w-full max-w-sm md:block">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input
             className="h-8 bg-surface-0 pl-8 text-xs"
             placeholder="搜索检查 / 任务 / 模型…"
@@ -93,7 +93,7 @@ export function AppTopbar() {
       <div className="ml-auto flex items-center gap-1.5">
         {health.data ? (
           <Badge variant={health.data.status === 'ok' ? 'success' : 'warning'} className="hidden sm:inline-flex">
-            <Activity className="mr-1 h-3 w-3" />
+            <Activity className="mr-1 h-3.5 w-3.5" />
             API · v{health.data.version}
           </Badge>
         ) : health.isError ? (

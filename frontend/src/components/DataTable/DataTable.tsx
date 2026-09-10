@@ -9,7 +9,7 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Columns3, Rows3 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronsUpDown, Columns3, Rows3 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -92,8 +92,8 @@ export function DataTable<TData>({
 
   return (
     <div className={cn('space-y-3', className)} data-testid="data-table">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">{toolbar}</div>
+      <div className={cn('flex flex-wrap items-center gap-2', !toolbar && 'justify-end')}>
+        {toolbar ? <div className="min-w-0 flex-1">{toolbar}</div> : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">
@@ -136,27 +136,35 @@ export function DataTable<TData>({
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
-                {hg.headers.map((header) => (
-                  <TableHead key={header.id} className={cn(cellPad)}>
-                    {header.isPlaceholder ? null : (
-                      <button
-                        type="button"
-                        className={cn(
-                          'inline-flex items-center gap-1',
-                          header.column.getCanSort() && 'cursor-pointer select-none hover:text-fg',
-                        )}
-                        onClick={header.column.getToggleSortingHandler()}
-                        disabled={!header.column.getCanSort()}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {{
-                          asc: ' ↑',
-                          desc: ' ↓',
-                        }[header.column.getIsSorted() as string] ?? null}
-                      </button>
-                    )}
-                  </TableHead>
-                ))}
+                {hg.headers.map((header) => {
+                  const canSort = header.column.getCanSort()
+                  const sorted = header.column.getIsSorted()
+                  return (
+                    <TableHead key={header.id} className={cn(cellPad)}>
+                      {header.isPlaceholder ? null : canSort ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 select-none hover:text-fg"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {sorted === 'asc' ? (
+                            <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                          ) : sorted === 'desc' ? (
+                            <ArrowDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                          ) : (
+                            <ChevronsUpDown
+                              className="h-3.5 w-3.5 shrink-0 text-muted/60"
+                              aria-hidden
+                            />
+                          )}
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
+                    </TableHead>
+                  )
+                })}
               </TableRow>
             ))}
           </TableHeader>

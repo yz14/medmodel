@@ -160,7 +160,7 @@ export function TaskLogsTimeline({
                         {stageLabel(log.stage)}
                       </span>
                     ) : null}
-                    <Badge family="tag" variant={meta.badge} className="h-5 px-1.5 text-[11px]">
+                    <Badge family="tag" variant={meta.badge} className="h-5 px-1.5 text-xs">
                       {meta.label}
                     </Badge>
                   </div>

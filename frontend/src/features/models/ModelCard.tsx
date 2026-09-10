@@ -41,7 +41,7 @@ export function ModelCard({
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap gap-1.5">
-          <Badge family="tag" variant="info">
+          <Badge family="tag" variant="secondary">
             {taskTypeLabel(model.task_type)}
           </Badge>
           {model.modalities.map((m) => (
