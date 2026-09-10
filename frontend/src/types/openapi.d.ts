@@ -567,6 +567,13 @@ export interface components {
             sop_uid: string;
             /** Instance Number */
             instance_number: number;
+            /**
+             * Slice Index
+             * @default 0
+             */
+            slice_index: number;
+            /** Slice Position */
+            slice_position?: number | null;
             /** Rows */
             rows?: number | null;
             /** Cols */
@@ -907,6 +914,11 @@ export interface components {
             num_instances: number;
             /** Spacing */
             spacing?: (number | null)[] | null;
+            /**
+             * Is Phantom
+             * @default false
+             */
+            is_phantom: boolean;
             /** Thumbnail Url */
             thumbnail_url?: string | null;
             /** Created At */

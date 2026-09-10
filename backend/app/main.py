@@ -38,12 +38,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     init_db()
     load_all_plugins()
     queue = get_task_queue()
+
+    from app.services.task_service import TaskService
+
+    with session_scope() as db:
+        requeue_ids = TaskService(db).reconcile_after_restart()
+
     await queue.start()
+    with session_scope() as db:
+        svc = TaskService(db)
+        for task_id in requeue_ids:
+            await svc.enqueue(task_id)
 
     with session_scope() as db:
         StudyService(db).ensure_demo_data()
 
-    logger.info("app_started", version=__version__)
+    logger.info("app_started", version=__version__, requeued=len(requeue_ids))
     yield
     await queue.stop()
     logger.info("app_stopped")

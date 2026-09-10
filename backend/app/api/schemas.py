@@ -56,6 +56,7 @@ class SeriesSummary(BaseModel):
     cols: int | None = None
     num_instances: int = 0
     spacing: list[float | None] | None = None
+    is_phantom: bool = False
     thumbnail_url: str | None = None
     created_at: str | None = None
 class StudyLastTask(BaseModel):
@@ -91,6 +92,8 @@ class InstanceItem(BaseModel):
 
     sop_uid: str
     instance_number: int
+    slice_index: int = 0
+    slice_position: float | None = None
     rows: int | None = None
     cols: int | None = None
     frame_url: str

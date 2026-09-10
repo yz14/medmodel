@@ -31,6 +31,8 @@ def list_instances(series_uid: str, svc: StudyService = Depends(get_study_servic
         InstanceItem(
             sop_uid=i.sop_uid,
             instance_number=i.instance_number,
+            slice_index=i.slice_index,
+            slice_position=i.slice_position,
             rows=i.rows,
             cols=i.cols,
             frame_url=f"/api/v1/series/{series_uid}/frames/{idx}",

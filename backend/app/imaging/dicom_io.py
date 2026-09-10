@@ -37,6 +37,7 @@ class ParsedInstance:
     rows: int
     cols: int
     spacing: tuple[float, float, float] | None
+    slice_position: float | None
     institution: str | None
     source_path: Path
 
@@ -46,6 +47,15 @@ def _safe_str(value: object | None) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _safe_int(value: object | None, default: int = 1) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _read_spacing(ds: Dataset) -> tuple[float, float, float] | None:
@@ -59,9 +69,75 @@ def _read_spacing(ds: Dataset) -> tuple[float, float, float] | None:
     return None
 
 
+def slice_position_from_ds(ds: Dataset) -> float | None:
+    """Project ImagePositionPatient onto the slice normal (IOP row × col).
+
+    Falls back to IPP[2] when orientation is missing. Returns None when IPP absent.
+    """
+    ipp = getattr(ds, "ImagePositionPatient", None)
+    if ipp is None:
+        return None
+    try:
+        pos = np.asarray([float(ipp[0]), float(ipp[1]), float(ipp[2])], dtype=np.float64)
+    except (TypeError, ValueError, IndexError):
+        return None
+
+    iop = getattr(ds, "ImageOrientationPatient", None)
+    if iop is not None:
+        try:
+            row = np.asarray([float(iop[0]), float(iop[1]), float(iop[2])], dtype=np.float64)
+            col = np.asarray([float(iop[3]), float(iop[4]), float(iop[5])], dtype=np.float64)
+            normal = np.cross(row, col)
+            norm = float(np.linalg.norm(normal))
+            if norm > 1e-6:
+                return float(np.dot(pos, normal / norm))
+        except (TypeError, ValueError, IndexError):
+            pass
+    return float(pos[2])
+
+
+def spatial_sort_key(
+    *,
+    slice_position: float | None,
+    instance_number: int,
+    sop_uid: str,
+) -> tuple[int, float, int, str]:
+    """Stable order: IPP projection → InstanceNumber → SOP UID."""
+    if slice_position is not None:
+        return (0, float(slice_position), int(instance_number), sop_uid)
+    return (1, 0.0, int(instance_number), sop_uid)
+
+
+def sort_parsed_instances(items: list[ParsedInstance]) -> list[ParsedInstance]:
+    return sorted(
+        items,
+        key=lambda x: spatial_sort_key(
+            slice_position=x.slice_position,
+            instance_number=x.instance_number,
+            sop_uid=x.sop_uid,
+        ),
+    )
+
+
+def sort_dicom_paths_spatially(paths: list[Path]) -> list[Path]:
+    """Order DICOM files by IPP projection (then InstanceNumber, SOP UID)."""
+    keyed: list[tuple[tuple[int, float, int, str], Path]] = []
+    for path in paths:
+        try:
+            ds = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+            pos = slice_position_from_ds(ds)
+            inst = _safe_int(getattr(ds, "InstanceNumber", None), 0)
+            sop = str(getattr(ds, "SOPInstanceUID", path.name))
+        except Exception:  # noqa: BLE001
+            pos, inst, sop = None, 0, path.name
+        keyed.append((spatial_sort_key(slice_position=pos, instance_number=inst, sop_uid=sop), path))
+    keyed.sort(key=lambda x: x[0])
+    return [p for _, p in keyed]
+
+
 def parse_dicom_file(path: Path) -> ParsedInstance | None:
     try:
-        ds = pydicom.dcmread(str(path), force=True)
+        ds = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
     except Exception as exc:  # noqa: BLE001
         logger.warning("dicom_read_failed", path=str(path), error=str(exc))
         return None
@@ -84,11 +160,11 @@ def parse_dicom_file(path: Path) -> ParsedInstance | None:
         return None
 
     modality = _safe_str(getattr(ds, "Modality", None)) or "OTHER"
-    rows = int(getattr(ds, "Rows", 512) or 512)
-    cols = int(getattr(ds, "Columns", 512) or 512)
-    instance_number = int(getattr(ds, "InstanceNumber", 1) or 1)
-    series_number = getattr(ds, "SeriesNumber", None)
-    series_number_i = int(series_number) if series_number is not None else None
+    rows = _safe_int(getattr(ds, "Rows", None), 512)
+    cols = _safe_int(getattr(ds, "Columns", None), 512)
+    instance_number = _safe_int(getattr(ds, "InstanceNumber", None), 1)
+    series_number_raw = getattr(ds, "SeriesNumber", None)
+    series_number_i = _safe_int(series_number_raw, 0) if series_number_raw is not None else None
 
     return ParsedInstance(
         sop_uid=sop_uid,
@@ -108,6 +184,7 @@ def parse_dicom_file(path: Path) -> ParsedInstance | None:
         rows=rows,
         cols=cols,
         spacing=_read_spacing(ds),
+        slice_position=slice_position_from_ds(ds),
         institution=_safe_str(getattr(ds, "InstitutionName", None)),
         source_path=path,
     )
@@ -199,11 +276,12 @@ def list_series_dicom_files(series_dir: Path) -> list[Path]:
 
 def read_series_volume(series_path: str | Path) -> np.ndarray | None:
     series_dir = Path(series_path)
-    files = list_series_dicom_files(series_dir)
+    files = sort_dicom_paths_spatially(list_series_dicom_files(series_dir))
     if not files:
         return None
 
     slices: list[np.ndarray] = []
+    shapes: set[tuple[int, ...]] = set()
     seen_sops: set[str] = set()
     for path in files:
         try:
@@ -213,6 +291,13 @@ def read_series_volume(series_path: str | Path) -> np.ndarray | None:
                 continue
             seen_sops.add(sop)
             arr = ds.pixel_array.astype(np.float32)
+            if arr.ndim != 2:
+                logger.warning("pixel_not_2d", path=str(path), shape=list(arr.shape))
+                return None
+            shapes.add(arr.shape)
+            if len(shapes) > 1:
+                logger.warning("pixel_shape_mismatch", path=str(path), shapes=[list(s) for s in shapes])
+                return None
             slope = float(getattr(ds, "RescaleSlope", 1.0) or 1.0)
             intercept = float(getattr(ds, "RescaleIntercept", 0.0) or 0.0)
             arr = arr * slope + intercept

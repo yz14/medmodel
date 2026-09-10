@@ -13,6 +13,7 @@ from app.imaging.dicom_io import (
     collect_dicom_files,
     parse_dicom_file,
     read_series_volume,
+    sort_parsed_instances,
     write_synthetic_dicom_series,
     write_thumbnail_from_volume,
 )
@@ -73,7 +74,11 @@ class StudyService:
             self.db.scalars(
                 select(InstanceRow)
                 .where(InstanceRow.series_uid == series_uid)
-                .order_by(InstanceRow.instance_number.asc())
+                .order_by(
+                    InstanceRow.slice_index.asc(),
+                    InstanceRow.instance_number.asc(),
+                    InstanceRow.sop_uid.asc(),
+                )
             ).all()
         )
 
@@ -144,7 +149,7 @@ class StudyService:
 
         total_instances = 0
         for series_uid, series_items in by_series.items():
-            series_items.sort(key=lambda x: x.instance_number)
+            series_items = sort_parsed_instances(series_items)
             series_dir = self.storage.series_dir(study_uid, series_uid)
             existing = self.get_series(series_uid)
             if existing is None:
@@ -164,12 +169,13 @@ class StudyService:
                     spacing_y=spacing[1] if spacing else None,
                     spacing_z=spacing[0] if spacing else None,
                     storage_path=str(series_dir),
+                    is_phantom=False,
                 )
                 self.db.add(existing)
                 self.db.flush()
 
-            for item in series_items:
-                dest = series_dir / f"{item.instance_number:04d}_{item.sop_uid[-8:]}.dcm"
+            for slice_index, item in enumerate(series_items):
+                dest = series_dir / f"{slice_index:04d}_{item.sop_uid[-8:]}.dcm"
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 # Avoid copying a file onto itself (demo previously wrote into series_dir then ingested).
                 src = item.source_path.resolve()
@@ -186,11 +192,18 @@ class StudyService:
                             sop_uid=item.sop_uid,
                             series_uid=series_uid,
                             instance_number=item.instance_number,
+                            slice_index=slice_index,
+                            slice_position=item.slice_position,
                             file_path=str(dest),
                             rows=item.rows,
                             cols=item.cols,
                         )
                     )
+                else:
+                    inst.slice_index = slice_index
+                    inst.slice_position = item.slice_position
+                    inst.instance_number = item.instance_number
+                    inst.file_path = str(dest)
             self.db.flush()
             existing.num_instances = len(
                 self.db.scalars(select(InstanceRow).where(InstanceRow.series_uid == series_uid)).all()
@@ -201,6 +214,9 @@ class StudyService:
             meta_src = Path(series_items[0].source_path).parent / "phantom_meta.json"
             if meta_src.is_file():
                 shutil.copy2(meta_src, series_dir / "phantom_meta.json")
+                existing.is_phantom = True
+            elif (series_dir / "phantom_meta.json").is_file():
+                existing.is_phantom = True
 
             # Remove leftover synthetic IMG*.dcm if ingested copies exist (legacy cleanup).
             ingested = list(series_dir.glob("[0-9][0-9][0-9][0-9]_*.dcm"))
@@ -439,6 +455,7 @@ class StudyService:
             "cols": series.cols,
             "num_instances": series.num_instances,
             "spacing": [series.spacing_z, series.spacing_y, series.spacing_x],
+            "is_phantom": bool(series.is_phantom),
             "thumbnail_url": f"/api/v1/series/{series.series_uid}/thumbnail",
             "created_at": utc_iso(series.created_at),
         }

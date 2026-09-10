@@ -924,3 +924,122 @@ def test_upload_rejects_too_large(client, monkeypatch):
     assert resp.json()["code"] == "UPLOAD_TOO_LARGE"
     get_settings.cache_clear()
 
+
+def test_inflight_dedup_single_worker_claim(client, monkeypatch):
+    """TODO-1 #1: same-params double POST must not run the worker twice."""
+    monkeypatch.setenv("VOXFLOW_TASK_FAKE_LATENCY_SCALE", "1.5")
+    get_settings.cache_clear()
+
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    body = {"series_uid": series_uid, "model_id": "lung_seg", "params": {"hu_low": -999}}
+    first = c.post("/api/v1/tasks", json=body)
+    second = c.post("/api/v1/tasks", json=body)
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["task_id"] == second.json()["task_id"]
+    task_id = first.json()["task_id"]
+    detail = _wait_task(c, task_id, timeout=30.0)
+    assert detail["status"] == "succeeded"
+    full = c.get(f"/api/v1/tasks/{task_id}").json()
+    claim_logs = [log for log in full.get("logs") or [] if "领取" in (log.get("message") or "")]
+    assert len(claim_logs) == 1, full.get("logs")
+    get_settings.cache_clear()
+
+
+def test_volume_read_failed_non_phantom(client):
+    """TODO-1 #3: non-phantom series with unreadable volume must fail (no random fallback)."""
+    from sqlalchemy import select
+
+    from app.infra import db as db_mod
+    from app.infra.orm import SeriesRow
+
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    assert db_mod.SessionLocal is not None
+    with db_mod.SessionLocal() as db:
+        row = db.scalar(select(SeriesRow).where(SeriesRow.series_uid == series_uid))
+        assert row is not None
+        row.is_phantom = False
+        row.storage_path = str(Path("/nonexistent/voxflow/series"))
+        db.commit()
+
+    create = c.post(
+        "/api/v1/tasks",
+        json={"series_uid": series_uid, "model_id": "lung_seg", "params": {}},
+    )
+    assert create.status_code == 202
+    detail = _wait_task(c, create.json()["task_id"])
+    assert detail["status"] == "failed"
+    assert detail.get("error_code") == "VOLUME_READ_FAILED"
+
+
+def test_instances_ordered_by_slice_index(client):
+    """TODO-1 #2: /instances frame order follows stable slice_index (IPP-backed)."""
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    resp = c.get(f"/api/v1/series/{series_uid}/instances")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) >= 2
+    indexes = [it["slice_index"] for it in items]
+    assert indexes == list(range(len(items)))
+    # Demo chest has ascending IPP; positions should be monotonic when present
+    positions = [it.get("slice_position") for it in items if it.get("slice_position") is not None]
+    if len(positions) >= 2:
+        assert positions == sorted(positions)
+
+
+def test_reconcile_after_restart_marks_running(client):
+    """TODO-1 #8: running tasks become INTERRUPTED; queued ids returned for re-enqueue."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.infra import db as db_mod
+    from app.infra.orm import TaskRow
+    from app.services.task_service import TaskService
+
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    assert db_mod.SessionLocal is not None
+    with db_mod.SessionLocal() as db:
+        svc = TaskService(db)
+        running = TaskRow(
+            task_id="reconcile_running_1",
+            series_uid=series_uid,
+            study_uid=None,
+            model_id="lung_seg",
+            model_version="0.0.0",
+            params={},
+            params_hash="reconcile-hash-running",
+            status="running",
+            stage="infer",
+            progress=0.4,
+            message="interrupted mid-flight",
+            started_at=datetime.now(timezone.utc),
+        )
+        queued = TaskRow(
+            task_id="reconcile_queued_1",
+            series_uid=series_uid,
+            study_uid=None,
+            model_id="nodule_det",
+            model_version="0.0.0",
+            params={},
+            params_hash="reconcile-hash-queued",
+            status="queued",
+            stage="queued",
+            progress=0.0,
+            message="waiting",
+        )
+        db.add(running)
+        db.add(queued)
+        db.commit()
+        ids = svc.reconcile_after_restart()
+        db.commit()
+        assert "reconcile_queued_1" in ids
+        assert "reconcile_running_1" not in ids
+        row = db.scalar(select(TaskRow).where(TaskRow.task_id == "reconcile_running_1"))
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error_code == "INTERRUPTED"
+

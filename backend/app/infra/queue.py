@@ -30,6 +30,7 @@ class TaskQueue:
         default_factory=asyncio.Queue
     )
     _running: set[str] = field(default_factory=set)
+    _pending: set[str] = field(default_factory=set)
     _canceled: set[str] = field(default_factory=set)
     _workers: list[asyncio.Task[None]] = field(default_factory=list)
     _listeners: list[EventListener] = field(default_factory=list)
@@ -43,6 +44,8 @@ class TaskQueue:
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
         self._running.clear()
+        self._pending.clear()
+        self._canceled.clear()
         self._workers.clear()
         self._started = True
         for i in range(self.max_concurrency):
@@ -88,6 +91,10 @@ class TaskQueue:
         asyncio.run_coroutine_threadsafe(self.emit(event), loop)
 
     async def enqueue(self, task_id: str, coro_factory: Callable[[], Awaitable[None]]) -> None:
+        if task_id in self._pending or task_id in self._running:
+            logger.info("enqueue_dedup_skip", task_id=task_id)
+            return
+        self._pending.add(task_id)
         await self._queue.put((task_id, coro_factory))
         await self.emit({"type": "queued", "task_id": task_id})
 
@@ -110,6 +117,7 @@ class TaskQueue:
     async def _worker_loop(self, worker_id: int) -> None:
         while True:
             task_id, factory = await self._queue.get()
+            self._pending.discard(task_id)
             if self.is_canceled(task_id):
                 self.clear_canceled(task_id)
                 await self.emit({"type": "canceled", "task_id": task_id, "status": "canceled"})
@@ -139,6 +147,7 @@ class TaskQueue:
                 )
             finally:
                 self._running.discard(task_id)
+                self._pending.discard(task_id)
                 self.clear_canceled(task_id)
                 self._queue.task_done()
 
@@ -159,4 +168,3 @@ def reset_task_queue_for_tests() -> None:
     """Test helper: drop singleton so next get_task_queue() rebuilds."""
     global _queue
     _queue = None
-

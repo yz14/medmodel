@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.domain.contracts import InferenceContext, InferenceResult, ModelPlugin, SeriesMeta, WorkDir
 from app.domain.enums import TaskStage, TaskStatus
+from app.domain.errors import TaskCanceled, VolumeReadError
 from app.infra.config import get_settings
 from app.infra.logging import get_logger, bind_trace_id, trace_id_var
 from app.infra.orm import ArtifactRow, SeriesRow, StudyRow, TaskLogRow, TaskRow
@@ -139,7 +140,14 @@ class TaskService:
         return list(rows), total
     def get_task(self, task_id: str) -> TaskRow | None:
         return self.db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
-    def create_task(self, series_uid: str, model_id: str, params: dict[str, Any] | None = None) -> TaskRow:
+    def create_task(
+        self, series_uid: str, model_id: str, params: dict[str, Any] | None = None
+    ) -> tuple[TaskRow, bool]:
+        """Create or reuse a task.
+
+        Returns (task, created) where created=True only when a new queued task
+        row was inserted and must be enqueued by the caller.
+        """
         if model_id not in registry:
             raise KeyError(f"未知模型: {model_id}")
         model_svc = ModelService(self.db)
@@ -173,7 +181,7 @@ class TaskService:
             .order_by(TaskRow.created_at.desc())
         )
         if inflight is not None:
-            return inflight
+            return inflight, False
         cached = self.db.scalar(
             select(TaskRow)
             .where(
@@ -218,7 +226,7 @@ class TaskService:
                 .order_by(TaskRow.created_at.desc())
             )
             if raced is not None:
-                return raced
+                return raced, False
             raise
         if cached is not None and cached.result_json is not None:
             task.status = TaskStatus.SUCCEEDED.value
@@ -246,13 +254,15 @@ class TaskService:
                 )
             self._add_log(task_id, f"复用结果自任务 {cached.task_id}", stage=TaskStage.DONE.value)
             self.db.flush()
-            return task
-        return task
+            return task, False
+        return task, True
+
     async def enqueue(self, task_id: str) -> None:
         queue = get_task_queue()
         async def _run() -> None:
             await InferenceOrchestrator.run_task(task_id)
         await queue.enqueue(task_id, _run)
+
     def cancel(self, task_id: str) -> TaskRow:
         task = self.get_task(task_id)
         if task is None:
@@ -266,11 +276,32 @@ class TaskService:
         self._add_log(task_id, "用户取消任务", stage=task.stage)
         self.db.flush()
         return task
-    def retry(self, task_id: str) -> TaskRow:
+
+    def retry(self, task_id: str) -> tuple[TaskRow, bool]:
         old = self.get_task(task_id)
         if old is None:
             raise KeyError(task_id)
         return self.create_task(old.series_uid, old.model_id, old.params)
+
+    def reconcile_after_restart(self) -> list[str]:
+        """Fail interrupted running tasks; return queued task_ids that need re-enqueue."""
+        now = datetime.now(timezone.utc)
+        running = list(
+            self.db.scalars(select(TaskRow).where(TaskRow.status == TaskStatus.RUNNING.value)).all()
+        )
+        for task in running:
+            task.status = TaskStatus.FAILED.value
+            task.error_code = "INTERRUPTED"
+            task.error_message = "进程重启，任务中断"
+            task.message = task.error_message
+            task.finished_at = now
+            self._add_log(task.task_id, task.error_message or "INTERRUPTED", stage=task.stage, level="error")
+            logger.warning("task_interrupted_on_restart", task_id=task.task_id)
+        self.db.flush()
+        queued = list(
+            self.db.scalars(select(TaskRow).where(TaskRow.status == TaskStatus.QUEUED.value)).all()
+        )
+        return [t.task_id for t in queued]
     def resolve_mask_frame(
         self,
         task_id: str,
@@ -428,15 +459,40 @@ class InferenceOrchestrator:
                 bind_trace_id(task.trace_id)
             if queue.is_canceled(task_id) or task.status == TaskStatus.CANCELED.value:
                 return
+            if task.status != TaskStatus.QUEUED.value:
+                # Already claimed / finished — avoid double execution
+                logger.info("task_claim_skip", task_id=task_id, status=task.status)
+                return
+
             series = db.scalar(select(SeriesRow).where(SeriesRow.series_uid == task.series_uid))
             if series is None:
                 raise RuntimeError(f"序列不存在: {task.series_uid}")
-            plugin = registry.get(task.model_id)
-            task.status = TaskStatus.RUNNING.value
-            task.started_at = datetime.now(timezone.utc)
-            task.message = "开始执行"
+            try:
+                plugin = registry.get(task.model_id)
+            except KeyError as exc:
+                raise RuntimeError(f"模型不可用: {task.model_id}") from exc
+
+            # Atomic claim: only one worker may transition queued → running
+            claimed = db.execute(
+                update(TaskRow)
+                .where(
+                    TaskRow.task_id == task_id,
+                    TaskRow.status == TaskStatus.QUEUED.value,
+                )
+                .values(
+                    status=TaskStatus.RUNNING.value,
+                    started_at=datetime.now(timezone.utc),
+                    message="开始执行",
+                    stage=TaskStage.PREPROCESS.value,
+                )
+            )
+            if claimed.rowcount == 0:
+                db.rollback()
+                logger.info("task_claim_lost", task_id=task_id)
+                return
             db.add(TaskLogRow(task_id=task_id, level="info", stage="preprocess", message="worker 领取任务"))
             db.commit()
+
             work = WorkDir.create(Path(task.work_dir or storage.task_dir(task_id)))
             spacing = None
             if series.spacing_z and series.spacing_y and series.spacing_x:
@@ -453,9 +509,10 @@ class InferenceOrchestrator:
                 spacing=spacing,
                 series_path=Path(series.storage_path),
             )
+
             def progress_cb(pct: float, stage: str, message: str) -> None:
                 if queue.is_canceled(task_id):
-                    raise RuntimeError("TASK_CANCELED")
+                    raise TaskCanceled()
                 t = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
                 if t is None:
                     return
@@ -474,6 +531,7 @@ class InferenceOrchestrator:
                         "status": TaskStatus.RUNNING.value,
                     }
                 )
+
             ctx = InferenceContext(
                 task_id=task_id,
                 work_dir=work,
@@ -487,23 +545,39 @@ class InferenceOrchestrator:
             from app.imaging.dicom_io import read_series_volume
 
             volume = None
+            read_error: str | None = None
             if series.storage_path:
                 try:
                     volume = read_series_volume(series.storage_path)
-                except Exception:  # noqa: BLE001
+                    if volume is None:
+                        read_error = "无法解码序列体数据（缺文件、压缩传输语法、层形状不一致或多帧）"
+                except Exception as exc:  # noqa: BLE001
                     logger.exception("volume_preload_failed", series_uid=series.series_uid)
-            if volume is None:
-                import numpy as np
+                    read_error = str(exc)
+            else:
+                read_error = "序列存储路径为空"
 
-                volume = np.random.default_rng(42).normal(
-                    loc=-200,
-                    scale=180,
-                    size=(
-                        max(series.num_instances, 8),
-                        max(series.rows, 32),
-                        max(series.cols, 32),
-                    ),
-                ).astype(np.float32)
+            if volume is None:
+                if series.is_phantom:
+                    import numpy as np
+
+                    logger.warning(
+                        "phantom_volume_fallback",
+                        series_uid=series.series_uid,
+                        reason=read_error,
+                    )
+                    volume = np.random.default_rng(42).normal(
+                        loc=-200,
+                        scale=180,
+                        size=(
+                            max(series.num_instances or 8, 8),
+                            max(series.rows or 32, 32),
+                            max(series.cols or 32, 32),
+                        ),
+                    ).astype(np.float32)
+                else:
+                    raise VolumeReadError(read_error or "体数据读取失败")
+
             ctx.volume = volume
             extras: dict[str, Any] = {}
             if series.storage_path:
@@ -520,7 +594,7 @@ class InferenceOrchestrator:
 
             # N-B3: optimistic lock — do not overwrite canceled
             if queue.is_canceled(task_id):
-                raise RuntimeError("TASK_CANCELED")
+                raise TaskCanceled()
 
             finished = datetime.now(timezone.utc)
             upd = db.execute(
@@ -568,14 +642,20 @@ class InferenceOrchestrator:
             )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            canceled = str(exc) == "TASK_CANCELED" or queue.is_canceled(task_id)
+            canceled = isinstance(exc, TaskCanceled) or str(exc) == "TASK_CANCELED" or queue.is_canceled(task_id)
             finished = datetime.now(timezone.utc)
             if canceled:
                 db.execute(
                     update(TaskRow)
                     .where(
                         TaskRow.task_id == task_id,
-                        TaskRow.status.in_([TaskStatus.RUNNING.value, TaskStatus.QUEUED.value, TaskStatus.CANCELED.value]),
+                        TaskRow.status.in_(
+                            [
+                                TaskStatus.RUNNING.value,
+                                TaskStatus.QUEUED.value,
+                                TaskStatus.CANCELED.value,
+                            ]
+                        ),
                     )
                     .values(
                         status=TaskStatus.CANCELED.value,
@@ -604,31 +684,41 @@ class InferenceOrchestrator:
                     }
                 )
             else:
-                t = db.scalar(select(TaskRow).where(TaskRow.task_id == task_id))
-                if t is not None and t.status == TaskStatus.RUNNING.value:
-                    t.status = TaskStatus.FAILED.value
-                    t.error_code = "INFERENCE_ERROR"
-                    t.error_message = str(exc)
-                    t.error_traceback = traceback.format_exc()
-                    t.message = t.error_message
-                    t.finished_at = finished
-                    db.add(
-                        TaskLogRow(
-                            task_id=task_id,
-                            level="error",
-                            stage=t.stage,
-                            message=t.error_message or "",
-                        )
+                error_code = getattr(exc, "code", None) or "INFERENCE_ERROR"
+                if not isinstance(error_code, str):
+                    error_code = "INFERENCE_ERROR"
+                db.execute(
+                    update(TaskRow)
+                    .where(
+                        TaskRow.task_id == task_id,
+                        TaskRow.status.in_([TaskStatus.QUEUED.value, TaskStatus.RUNNING.value]),
                     )
-                    db.commit()
-                    queue.emit_threadsafe(
-                        {
-                            "type": "failed",
-                            "task_id": task_id,
-                            "status": TaskStatus.FAILED.value,
-                            "message": str(exc),
-                        }
+                    .values(
+                        status=TaskStatus.FAILED.value,
+                        error_code=error_code,
+                        error_message=str(exc),
+                        error_traceback=traceback.format_exc(),
+                        message=str(exc),
+                        finished_at=finished,
                     )
+                )
+                db.add(
+                    TaskLogRow(
+                        task_id=task_id,
+                        level="error",
+                        stage="failed",
+                        message=str(exc),
+                    )
+                )
+                db.commit()
+                queue.emit_threadsafe(
+                    {
+                        "type": "failed",
+                        "task_id": task_id,
+                        "status": TaskStatus.FAILED.value,
+                        "message": str(exc),
+                    }
+                )
             if not canceled:
                 logger.exception("task_failed", task_id=task_id)
         finally:

@@ -368,7 +368,11 @@ class ReportService:
         rows = self.db.scalars(
             select(InstanceRow)
             .where(InstanceRow.series_uid == series_uid)
-            .order_by(InstanceRow.instance_number.asc())
+            .order_by(
+                InstanceRow.slice_index.asc(),
+                InstanceRow.instance_number.asc(),
+                InstanceRow.sop_uid.asc(),
+            )
         ).all()
         paths = [Path(r.file_path) for r in rows]
         missing = [p for p in paths if not p.is_file()]

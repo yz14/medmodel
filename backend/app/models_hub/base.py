@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from app.domain.contracts import InferenceContext, InferenceResult, ModelSpec
+from app.domain.errors import TaskCanceled
 
 
 def stable_seed(*parts: str) -> int:
@@ -40,14 +41,14 @@ class BaseFakeModel(ABC):
         elapsed = 0.0
         while elapsed < total:
             if ctx is not None and ctx.cancel_check and ctx.cancel_check():
-                raise RuntimeError("TASK_CANCELED")
+                raise TaskCanceled()
             chunk = min(step, total - elapsed)
             time.sleep(chunk)
             elapsed += chunk
 
     def _progress(self, ctx: InferenceContext, pct: float, stage: str, message: str) -> None:
         if ctx.cancel_check and ctx.cancel_check():
-            raise RuntimeError("TASK_CANCELED")
+            raise TaskCanceled()
         ctx.progress_cb(pct, stage, message)
 
     def run(self, ctx: InferenceContext) -> InferenceResult:

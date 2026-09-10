@@ -8,7 +8,13 @@ import numpy as np
 from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
 
-from app.imaging.dicom_io import _looks_like_dicom, write_synthetic_dicom_series
+from app.imaging.dicom_io import (
+    _looks_like_dicom,
+    parse_dicom_file,
+    read_series_volume,
+    sort_dicom_paths_spatially,
+    write_synthetic_dicom_series,
+)
 
 
 def _write_no_preamble_dicom(path: Path) -> None:
@@ -61,3 +67,60 @@ def test_looks_like_dicom_rejects_garbage(tmp_path: Path) -> None:
     path = tmp_path / "noise.bin"
     path.write_bytes(b"not-a-dicom-file" * 20)
     assert _looks_like_dicom(path) is False
+
+
+def _write_slice(path: Path, *, z: float, instance_number: int, fill: int) -> None:
+    file_meta = Dataset()
+    file_meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2"
+    file_meta.MediaStorageSOPInstanceUID = generate_uid()
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = generate_uid()
+    ds = FileDataset(str(path), {}, file_meta=file_meta, preamble=b"\0" * 128)
+    ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
+    ds.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+    ds.StudyInstanceUID = generate_uid()
+    ds.SeriesInstanceUID = generate_uid()
+    ds.Modality = "CT"
+    ds.InstanceNumber = instance_number
+    ds.Rows = 4
+    ds.Columns = 4
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.BitsAllocated = 16
+    ds.BitsStored = 16
+    ds.HighBit = 15
+    ds.PixelRepresentation = 1
+    ds.RescaleSlope = 1
+    ds.RescaleIntercept = 0
+    ds.ImagePositionPatient = [0.0, 0.0, z]
+    ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+    ds.PixelData = (np.full((4, 4), fill, dtype=np.int16)).tobytes()
+    ds.save_as(str(path), enforce_file_format=True)
+
+
+def test_spatial_sort_ignores_misleading_instance_number(tmp_path: Path) -> None:
+    """TODO-1 #2: IPP projection wins over InstanceNumber / filename order."""
+    a = tmp_path / "zzzz_high.dcm"
+    b = tmp_path / "aaaa_low.dcm"
+    # Filename/instance suggest reverse order; IPP says b then a
+    _write_slice(a, z=10.0, instance_number=1, fill=100)
+    _write_slice(b, z=0.0, instance_number=99, fill=200)
+    ordered = sort_dicom_paths_spatially([a, b])
+    assert ordered == [b, a]
+    parsed_a = parse_dicom_file(a)
+    parsed_b = parse_dicom_file(b)
+    assert parsed_a is not None and parsed_b is not None
+    assert parsed_b.slice_position is not None and parsed_a.slice_position is not None
+    assert parsed_b.slice_position < parsed_a.slice_position
+
+
+def test_read_series_volume_follows_ipp(tmp_path: Path) -> None:
+    series = tmp_path / "series"
+    series.mkdir()
+    _write_slice(series / "9999_late.dcm", z=5.0, instance_number=1, fill=11)
+    _write_slice(series / "0001_early.dcm", z=0.0, instance_number=50, fill=22)
+    vol = read_series_volume(series)
+    assert vol is not None
+    assert vol.shape[0] == 2
+    assert int(vol[0, 0, 0]) == 22
+    assert int(vol[1, 0, 0]) == 11

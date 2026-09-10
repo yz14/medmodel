@@ -149,8 +149,9 @@
 ### F. 建议修复顺序（每轮一个清晰目标）
 
 1. **正确性底线**：#1 双重执行、#2 切片排序统一、#3 去掉随机体积兜底、#9 queued 卡死、#8 重启对账。
+   - [x] 2026-09-10 Round1 已落地：`create_task`/`retry` 返回 `(task, created)` 仅新建入队；`TaskQueue._pending` 去重；`_run_sync` 原子 `queued→running` claim；IPP 投影 → `slice_position`/`slice_index`（入库/帧/报告/体数据统一）；非 phantom 体积失败 → `VOLUME_READ_FAILED`；failed 覆盖 queued+running；lifespan 对账 running→`INTERRUPTED`、queued 重入队；顺带 #7 Dockerfile 复制 `alembic/`+`alembic.ini`；`TaskCanceled` 域异常。#6 nginx 已在 TODO-2 Round6 修完。
 2. **真实 DICOM 可用**：#4 解码（建议后端出解码帧接口）、#16/#17 上传、#22 spacing、#12 约束。
-3. **部署可用**：#6 nginx、#7 Dockerfile、#13 相对 URI、#37 迁移顺序 + busy_timeout。
+3. **部署可用**：#13 相对 URI、#37 迁移顺序 + busy_timeout（#6/#7 已完成）。
 4. **前端一致性**：#5、#24、#25、#26、#27、#43、#45。
 5. **工程规范**：#34 格式 + pre-commit、#32 CI 全量、#35/#36 类型契约、#39 死代码清理、#33 补测试。
 6. **性能**：#14、#15、#44。

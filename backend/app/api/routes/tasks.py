@@ -31,7 +31,7 @@ async def create_task(
     svc: TaskService = Depends(get_task_service),
 ) -> TaskCreateResponse:
     try:
-        task = svc.create_task(body.series_uid, body.model_id, body.params)
+        task, created = svc.create_task(body.series_uid, body.model_id, body.params)
         svc.db.commit()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
@@ -42,7 +42,7 @@ async def create_task(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"code": "BAD_REQUEST", "message": str(exc)}) from exc
 
-    if not task.cache_hit:
+    if created:
         await svc.enqueue(task.task_id)
 
     return TaskCreateResponse(task_id=task.task_id, status=task.status, cache_hit=task.cache_hit)
@@ -183,11 +183,11 @@ def cancel_task(task_id: str, svc: TaskService = Depends(get_task_service)) -> d
 @router.post("/{task_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 async def retry_task(task_id: str, svc: TaskService = Depends(get_task_service)) -> TaskCreateResponse:
     try:
-        task = svc.retry(task_id)
+        task, created = svc.retry(task_id)
         svc.db.commit()
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND", "message": task_id}) from exc
-    if not task.cache_hit:
+    if created:
         await svc.enqueue(task.task_id)
     return TaskCreateResponse(task_id=task.task_id, status=task.status, cache_hit=task.cache_hit)
 

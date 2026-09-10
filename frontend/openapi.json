@@ -1547,6 +1547,22 @@
             "type": "integer",
             "title": "Instance Number"
           },
+          "slice_index": {
+            "type": "integer",
+            "title": "Slice Index",
+            "default": 0
+          },
+          "slice_position": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slice Position"
+          },
           "rows": {
             "anyOf": [
               {
@@ -2472,6 +2488,11 @@
               }
             ],
             "title": "Spacing"
+          },
+          "is_phantom": {
+            "type": "boolean",
+            "title": "Is Phantom",
+            "default": false
           },
           "thumbnail_url": {
             "anyOf": [
