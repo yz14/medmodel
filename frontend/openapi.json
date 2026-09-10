@@ -409,7 +409,58 @@
           "series"
         ],
         "summary": "Get Frame",
+        "description": "Raw DICOM bytes (CS3D / wadouri). Prefer /pixel for the main viewer.",
         "operationId": "get_frame_api_v1_series__series_uid__frames__idx__get",
+        "parameters": [
+          {
+            "name": "series_uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Series Uid"
+            }
+          },
+          {
+            "name": "idx",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Idx"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/series/{series_uid}/frames/{idx}/pixel": {
+      "get": {
+        "tags": [
+          "series"
+        ],
+        "summary": "Get Frame Pixel",
+        "description": "Decoded float32 LE pixels + metadata headers (TODO-1 #4).",
+        "operationId": "get_frame_pixel_api_v1_series__series_uid__frames__idx__pixel_get",
         "parameters": [
           {
             "name": "series_uid",
@@ -1592,6 +1643,17 @@
           "wadouri": {
             "type": "string",
             "title": "Wadouri"
+          },
+          "pixel_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pixel Url"
           }
         },
         "type": "object",

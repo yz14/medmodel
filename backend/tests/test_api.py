@@ -1043,3 +1043,81 @@ def test_reconcile_after_restart_marks_running(client):
         assert row.status == "failed"
         assert row.error_code == "INTERRUPTED"
 
+
+def test_decoded_pixel_frame_endpoint(client):
+    """TODO-1 #4: /frames/{idx}/pixel returns float32 + metadata headers."""
+    import numpy as np
+
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    resp = c.get(f"/api/v1/series/{series_uid}/frames/0/pixel")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers.get("X-VoxFlow-Dtype") == "float32"
+    width = int(resp.headers["X-VoxFlow-Width"])
+    height = int(resp.headers["X-VoxFlow-Height"])
+    assert width > 0 and height > 0
+    arr = np.frombuffer(resp.content, dtype="<f4")
+    assert arr.size == width * height
+    assert np.isfinite(arr).all()
+
+
+def test_series_spacing_z_from_ipp(client):
+    """TODO-1 #22: demo chest spacing_z follows IPP gap (~1.25), not only SliceThickness."""
+    c, _ = client
+    series_uid = _chest_series_uid(c)
+    series = c.get(f"/api/v1/series/{series_uid}").json()
+    spacing = series.get("spacing") or []
+    assert len(spacing) >= 1
+    z = spacing[0]
+    assert z is not None
+    assert abs(float(z) - 1.25) < 0.05
+
+
+def test_zip_extract_respects_budget(tmp_path, monkeypatch):
+    """TODO-1 #17: zip bomb / oversized uncompressed payload is rejected."""
+    import zipfile
+
+    from app.imaging.dicom_io import _extract_zip_dicoms
+
+    monkeypatch.setenv("VOXFLOW_MAX_UPLOAD_BYTES", "1024")
+    get_settings.cache_clear()
+
+    zpath = tmp_path / "bomb.zip"
+    with zipfile.ZipFile(zpath, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("big.dcm", b"0" * 4096)
+
+    try:
+        _extract_zip_dicoms(zpath, max_uncompressed_bytes=1024)
+        ok = True
+    except ValueError as exc:
+        ok = False
+        assert "解压" in str(exc) or "限制" in str(exc)
+    assert ok is False
+    get_settings.cache_clear()
+
+
+def test_upload_preserves_relative_path_collision(client):
+    """TODO-1 #16: same basename under different folders does not overwrite."""
+    import shutil
+    import tempfile
+
+    from app.services.study_service import _safe_upload_relpath
+
+    root = Path(tempfile.mkdtemp(prefix="voxflow_rel_"))
+    try:
+        a = _safe_upload_relpath(root, "folder_a/1.dcm")
+        a.parent.mkdir(parents=True, exist_ok=True)
+        a.write_bytes(b"aaa")
+        b = _safe_upload_relpath(root, "folder_b/1.dcm")
+        b.parent.mkdir(parents=True, exist_ok=True)
+        b.write_bytes(b"bbb")
+        assert a != b
+        assert a.read_bytes() == b"aaa"
+        assert b.read_bytes() == b"bbb"
+        # same relative path twice → uniquify
+        cpath = _safe_upload_relpath(root, "folder_a/1.dcm")
+        assert cpath != a
+        assert cpath.name.startswith("1_")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+

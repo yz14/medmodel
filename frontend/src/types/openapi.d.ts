@@ -207,8 +207,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Frame */
+        /**
+         * Get Frame
+         * @description Raw DICOM bytes (CS3D / wadouri). Prefer /pixel for the main viewer.
+         */
         get: operations["get_frame_api_v1_series__series_uid__frames__idx__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{series_uid}/frames/{idx}/pixel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Frame Pixel
+         * @description Decoded float32 LE pixels + metadata headers (TODO-1 #4).
+         */
+        get: operations["get_frame_pixel_api_v1_series__series_uid__frames__idx__pixel_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -582,6 +605,8 @@ export interface components {
             frame_url: string;
             /** Wadouri */
             wadouri: string;
+            /** Pixel Url */
+            pixel_url?: string | null;
         };
         /** InstanceListResponse */
         InstanceListResponse: {
@@ -1397,6 +1422,38 @@ export interface operations {
         };
     };
     get_frame_api_v1_series__series_uid__frames__idx__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_uid: string;
+                idx: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_frame_pixel_api_v1_series__series_uid__frames__idx__pixel_get: {
         parameters: {
             query?: never;
             header?: never;

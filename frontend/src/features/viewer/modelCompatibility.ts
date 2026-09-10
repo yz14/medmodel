@@ -6,7 +6,7 @@ export type SeriesConstraintInput = {
   numInstances?: number | null
 }
 
-/** Mirror backend check_input_constraints for UI disable (N-B6). */
+/** Mirror backend check_input_constraints for UI disable (N-B6 / TODO-1 #12). */
 export function modelCompatibility(
   model: ModelSpec,
   series: SeriesConstraintInput,
@@ -19,8 +19,9 @@ export function modelCompatibility(
     ].map((m) => String(m).toUpperCase()),
   )
   const mod = (series.modality ?? '').toUpperCase()
-  if (allowedMods.size && mod && !allowedMods.has(mod)) {
-    return { ok: false, reason: `不支持模态 ${mod}` }
+  if (allowedMods.size) {
+    if (!mod) return { ok: false, reason: '序列模态未知' }
+    if (!allowedMods.has(mod)) return { ok: false, reason: `不支持模态 ${mod}` }
   }
 
   const minSlices = constraints.min_slices
@@ -39,8 +40,9 @@ export function modelCompatibility(
     ].map((p) => String(p).toUpperCase()),
   )
   const part = (series.bodyPart ?? '').toUpperCase()
-  if (allowedParts.size && part && !allowedParts.has(part)) {
-    return { ok: false, reason: `不适用于 ${part}` }
+  if (allowedParts.size) {
+    if (!part) return { ok: false, reason: '序列部位未知' }
+    if (!allowedParts.has(part)) return { ok: false, reason: `不适用于 ${part}` }
   }
 
   return { ok: true }

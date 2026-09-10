@@ -75,6 +75,17 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[
+            "X-Trace-Id",
+            "X-VoxFlow-Width",
+            "X-VoxFlow-Height",
+            "X-VoxFlow-Dtype",
+            "X-VoxFlow-Window-Center",
+            "X-VoxFlow-Window-Width",
+            "X-VoxFlow-Photometric",
+            "X-VoxFlow-Slope",
+            "X-VoxFlow-Intercept",
+        ],
     )
 
     @app.middleware("http")

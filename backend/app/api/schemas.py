@@ -98,6 +98,7 @@ class InstanceItem(BaseModel):
     cols: int | None = None
     frame_url: str
     wadouri: str
+    pixel_url: str | None = None
 class InstanceListResponse(BaseModel):
 
     items: list[InstanceItem]

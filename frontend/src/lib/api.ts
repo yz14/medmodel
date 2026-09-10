@@ -138,6 +138,10 @@ export const api = {
   frameUrl: (seriesUid: string, idx: number) =>
     `/api/v1/series/${encodeURIComponent(seriesUid)}/frames/${idx}`,
 
+  /** Backend-decoded float32 pixels for the main viewer (TODO-1 #4). */
+  pixelFrameUrl: (seriesUid: string, idx: number) =>
+    `/api/v1/series/${encodeURIComponent(seriesUid)}/frames/${idx}/pixel`,
+
   thumbnailUrl: (seriesUid: string) =>
     `/api/v1/series/${encodeURIComponent(seriesUid)}/thumbnail`,
 

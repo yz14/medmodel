@@ -1,4 +1,8 @@
-import { parseDicom } from 'dicom-parser'
+/**
+ * Frame display helpers. Pixel decode happens on the backend
+ * (`GET /series/.../frames/{idx}/pixel`) so MONOCHROME1 / BitsStored /
+ * multi-valued DS / transfer-syntax errors stay consistent with AI volume load.
+ */
 
 export interface DecodedFrame {
   width: number
@@ -8,56 +12,69 @@ export interface DecodedFrame {
   intercept: number
   windowCenter?: number
   windowWidth?: number
+  photometric?: string
 }
 
-function getPixelData(dataSet: ReturnType<typeof parseDicom>, rows: number, cols: number, bitsAllocated: number, pixelRepresentation: number) {
-  const element = dataSet.elements.x7fe00010
-  if (!element) throw new Error('DICOM 缺少 PixelData')
-  const byteArray = dataSet.byteArray
-  const offset = element.dataOffset
-  const length = element.length
-  const count = rows * cols
-  const out = new Float32Array(count)
-
-  if (bitsAllocated === 8) {
-    for (let i = 0; i < count; i++) out[i] = byteArray[offset + i]
-  } else {
-    const view = new DataView(byteArray.buffer, byteArray.byteOffset + offset, length)
-    for (let i = 0; i < count; i++) {
-      out[i] = pixelRepresentation === 1 ? view.getInt16(i * 2, true) : view.getUint16(i * 2, true)
-    }
-  }
-  return out
+function headerFloat(res: Response, name: string): number | undefined {
+  const raw = res.headers.get(name)
+  if (raw == null || raw === '') return undefined
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : undefined
 }
 
-function parseDsFirst(raw: string | undefined, fallback: number): number {
-  if (!raw) return fallback
-  const n = Number(raw.split('\\')[0]?.trim())
-  return Number.isFinite(n) ? n : fallback
-}
-
-export async function decodeDicomFrame(url: string): Promise<DecodedFrame> {
+/** Load a backend-decoded float32 frame (little-endian body + X-VoxFlow-* headers). */
+export async function fetchDecodedFrame(url: string): Promise<DecodedFrame> {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`加载帧失败: ${res.status}`)
-  const buffer = new Uint8Array(await res.arrayBuffer())
-  const dataSet = parseDicom(buffer)
-  const rows = dataSet.uint16('x00280010') ?? 0
-  const cols = dataSet.uint16('x00280011') ?? 0
-  const bitsAllocated = dataSet.uint16('x00280100') ?? 16
-  const pixelRepresentation = dataSet.uint16('x00280103') ?? 0
-  const slope = parseDsFirst(dataSet.string('x00281053'), 1)
-  const intercept = parseDsFirst(dataSet.string('x00281052'), 0)
-  const wcRaw = dataSet.string('x00281050')
-  const wwRaw = dataSet.string('x00281051')
-  const wcParsed = wcRaw ? parseDsFirst(wcRaw, Number.NaN) : Number.NaN
-  const wwParsed = wwRaw ? parseDsFirst(wwRaw, Number.NaN) : Number.NaN
-  const windowCenter = Number.isFinite(wcParsed) ? wcParsed : undefined
-  const windowWidth = Number.isFinite(wwParsed) && wwParsed > 0 ? wwParsed : undefined
-  const raw = getPixelData(dataSet, rows, cols, bitsAllocated, pixelRepresentation)
-  const pixels = new Float32Array(raw.length)
-  for (let i = 0; i < raw.length; i++) pixels[i] = raw[i]! * slope + intercept
-  return { width: cols, height: rows, pixels, slope, intercept, windowCenter, windowWidth }
+  if (!res.ok) {
+    let message = `加载帧失败: ${res.status}`
+    try {
+      const body = (await res.json()) as { message?: string; code?: string }
+      if (body?.message) message = body.message
+    } catch {
+      /* ignore non-JSON error bodies */
+    }
+    throw new Error(message)
+  }
+
+  const width = Number(res.headers.get('X-VoxFlow-Width') || 0)
+  const height = Number(res.headers.get('X-VoxFlow-Height') || 0)
+  if (!width || !height) {
+    throw new Error('帧元数据缺失（Width/Height）')
+  }
+
+  const dtype = (res.headers.get('X-VoxFlow-Dtype') || 'float32').toLowerCase()
+  if (dtype !== 'float32') {
+    throw new Error(`不支持的像素类型: ${dtype}`)
+  }
+
+  const buffer = await res.arrayBuffer()
+  const expected = width * height * 4
+  if (buffer.byteLength < expected) {
+    throw new Error(`像素字节不足: got ${buffer.byteLength}, expected ${expected}`)
+  }
+
+  const pixels = new Float32Array(buffer, 0, width * height)
+  const slope = headerFloat(res, 'X-VoxFlow-Slope') ?? 1
+  const intercept = headerFloat(res, 'X-VoxFlow-Intercept') ?? 0
+  const windowCenter = headerFloat(res, 'X-VoxFlow-Window-Center')
+  const ww = headerFloat(res, 'X-VoxFlow-Window-Width')
+  const windowWidth = ww != null && ww > 0 ? ww : undefined
+  const photometric = res.headers.get('X-VoxFlow-Photometric') || undefined
+
+  return {
+    width,
+    height,
+    pixels,
+    slope,
+    intercept,
+    windowCenter,
+    windowWidth,
+    photometric,
+  }
 }
+
+/** @deprecated Use fetchDecodedFrame — kept name for call-site clarity during transition. */
+export const decodeDicomFrame = fetchDecodedFrame
 
 export function renderFrameToCanvas(
   canvas: HTMLCanvasElement,

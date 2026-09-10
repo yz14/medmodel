@@ -17,12 +17,38 @@ from app.imaging.dicom_io import (
     write_synthetic_dicom_series,
     write_thumbnail_from_volume,
 )
+from app.imaging.pixel_decode import spacing_z_from_positions
+from app.infra.config import get_settings
 from app.infra.logging import get_logger
 from app.infra.orm import InstanceRow, SeriesRow, StudyRow, TaskRow
 from app.infra.storage import StorageService
 from app.infra.timeutil import utc_iso
 
 logger = get_logger(__name__)
+
+
+def _safe_upload_relpath(tmp_root: Path, filename: str) -> Path:
+    """Preserve relative upload paths; uniquify basename collisions (TODO-1 #16)."""
+    raw = filename.replace("\\", "/")
+    parts = [p for p in Path(raw).parts if p not in ("", ".", "..")]
+    parts = [p for p in parts if not (len(p) >= 2 and p[1] == ":")]
+    if not parts:
+        parts = ["upload.dcm"]
+    dest = tmp_root.joinpath(*parts)
+    try:
+        dest.resolve().relative_to(tmp_root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"非法上传路径: {filename}") from exc
+    if not dest.exists():
+        return dest
+    stem, suffix = dest.stem, dest.suffix
+    parent = dest.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}_{i}{suffix}"
+        if not candidate.exists():
+            return candidate
+        i += 1
 
 
 class StudyService:
@@ -87,7 +113,8 @@ class StudyService:
         tmp_root = Path(tempfile.mkdtemp(prefix="voxflow_upload_"))
         try:
             for name, content in files:
-                dest = tmp_root / Path(name).name
+                dest = _safe_upload_relpath(tmp_root, name)
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(content)
             return self.upload_directory(tmp_root)
         finally:
@@ -98,7 +125,8 @@ class StudyService:
         return self.ingest_path(tmp_root)
 
     def ingest_path(self, source: Path) -> list[StudyRow]:
-        dicom_files, temp_dirs = collect_dicom_files(source)
+        budget = get_settings().max_upload_bytes
+        dicom_files, temp_dirs = collect_dicom_files(source, max_uncompressed_bytes=budget)
         try:
             if not dicom_files:
                 raise ValueError("未找到可解析的 DICOM 文件")
@@ -155,6 +183,8 @@ class StudyService:
             if existing is None:
                 sample = series_items[0]
                 spacing = sample.spacing
+                ipp_z = spacing_z_from_positions([it.slice_position for it in series_items])
+                spacing_z = ipp_z if ipp_z is not None else (spacing[0] if spacing else None)
                 existing = SeriesRow(
                     series_uid=series_uid,
                     study_uid=study_uid,
@@ -167,12 +197,21 @@ class StudyService:
                     num_instances=0,
                     spacing_x=spacing[2] if spacing else None,
                     spacing_y=spacing[1] if spacing else None,
-                    spacing_z=spacing[0] if spacing else None,
+                    spacing_z=spacing_z,
                     storage_path=str(series_dir),
                     is_phantom=False,
                 )
                 self.db.add(existing)
                 self.db.flush()
+            else:
+                # Refresh z spacing from IPP when re-ingesting
+                ipp_z = spacing_z_from_positions([it.slice_position for it in series_items])
+                if ipp_z is not None:
+                    existing.spacing_z = ipp_z
+                sample = series_items[0]
+                if sample.spacing:
+                    existing.spacing_y = sample.spacing[1]
+                    existing.spacing_x = sample.spacing[2]
 
             for slice_index, item in enumerate(series_items):
                 dest = series_dir / f"{slice_index:04d}_{item.sop_uid[-8:]}.dcm"

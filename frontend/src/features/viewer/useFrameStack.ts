@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
-import { decodeDicomFrame, type DecodedFrame } from '@/features/viewer/dicom-decoder'
+import { fetchDecodedFrame, type DecodedFrame } from '@/features/viewer/dicom-decoder'
 
 const MAX_CACHE = 24
 const PREFETCH_RADIUS = 2
@@ -50,7 +50,7 @@ export function useFrameStack(seriesUid: string, sliceIndex: number, sliceCount:
       const pending = inflight.get(idx)
       if (pending) return pending
 
-      const promise = decodeDicomFrame(api.frameUrl(seriesUid, idx))
+      const promise = fetchDecodedFrame(api.pixelFrameUrl(seriesUid, idx))
         .then((decoded) => {
           if (gen !== genRef.current) return decoded
           cache.set(idx, decoded)
@@ -68,13 +68,17 @@ export function useFrameStack(seriesUid: string, sliceIndex: number, sliceCount:
     [seriesUid, sliceCount, trimCache],
   )
 
-  // Load current slice
+  // Load current slice — clear stale frame when target is not cached (TODO-1 #24 related)
   useEffect(() => {
     if (!seriesUid || sliceCount <= 0) return
     if (sliceIndex < 0 || sliceIndex >= sliceCount) return
 
     let cancelled = false
     const gen = genRef.current
+    const cached = cacheRef.current.get(sliceIndex)
+    if (!cached) {
+      setFrame(null)
+    }
     setLoading(true)
     setError(null)
     void loadOne(sliceIndex)

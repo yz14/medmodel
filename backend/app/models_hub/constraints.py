@@ -37,10 +37,15 @@ def check_input_constraints(
     allowed = _as_mod_set(list(spec.modalities))
     allowed |= _as_mod_set(list(constraints.get("modality") or []))
     mod = (modality or "").upper()
-    if allowed and mod and mod not in allowed:
-        raise UnsupportedInputError(
-            f"模型 {spec.id} 不支持模态 {mod}（允许: {', '.join(sorted(allowed))}）"
-        )
+    if allowed:
+        if not mod:
+            raise UnsupportedInputError(
+                f"模型 {spec.id} 需要已知模态（允许: {', '.join(sorted(allowed))}），当前序列模态缺失"
+            )
+        if mod not in allowed:
+            raise UnsupportedInputError(
+                f"模型 {spec.id} 不支持模态 {mod}（允许: {', '.join(sorted(allowed))}）"
+            )
 
     min_slices = constraints.get("min_slices")
     if min_slices is not None:
@@ -61,7 +66,12 @@ def check_input_constraints(
         else:
             allowed_parts |= {str(p).upper() for p in constraint_parts}
     part = (body_part or "").upper()
-    if allowed_parts and part and part not in allowed_parts:
-        raise UnsupportedInputError(
-            f"模型 {spec.id} 不适用于部位 {part}（允许: {', '.join(sorted(allowed_parts))}）"
-        )
+    if allowed_parts:
+        if not part:
+            raise UnsupportedInputError(
+                f"模型 {spec.id} 需要已知部位（允许: {', '.join(sorted(allowed_parts))}），当前序列部位缺失"
+            )
+        if part not in allowed_parts:
+            raise UnsupportedInputError(
+                f"模型 {spec.id} 不适用于部位 {part}（允许: {', '.join(sorted(allowed_parts))}）"
+            )

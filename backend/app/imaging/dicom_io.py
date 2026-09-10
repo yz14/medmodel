@@ -190,7 +190,11 @@ def parse_dicom_file(path: Path) -> ParsedInstance | None:
     )
 
 
-def collect_dicom_files(source: Path) -> tuple[list[Path], list[Path]]:
+def collect_dicom_files(
+    source: Path,
+    *,
+    max_uncompressed_bytes: int | None = None,
+) -> tuple[list[Path], list[Path]]:
     """
     Collect DICOM paths under source.
     Returns (files, temp_dirs) — caller must rmtree each temp_dir when done.
@@ -198,7 +202,7 @@ def collect_dicom_files(source: Path) -> tuple[list[Path], list[Path]]:
     temp_dirs: list[Path] = []
     if source.is_file():
         if source.suffix.lower() == ".zip":
-            tmp, files = _extract_zip_dicoms(source)
+            tmp, files = _extract_zip_dicoms(source, max_uncompressed_bytes=max_uncompressed_bytes)
             temp_dirs.append(tmp)
             return files, temp_dirs
         return [source], temp_dirs
@@ -210,7 +214,7 @@ def collect_dicom_files(source: Path) -> tuple[list[Path], list[Path]]:
         if path.suffix.lower() in {".dcm", ".dicom"} or _looks_like_dicom(path):
             dicoms.append(path)
         elif path.suffix.lower() == ".zip":
-            tmp, nested = _extract_zip_dicoms(path)
+            tmp, nested = _extract_zip_dicoms(path, max_uncompressed_bytes=max_uncompressed_bytes)
             temp_dirs.append(tmp)
             dicoms.extend(nested)
     return dicoms, temp_dirs
@@ -233,9 +237,17 @@ def _looks_like_dicom(path: Path) -> bool:
         return False
 
 
-def _extract_zip_dicoms(zip_path: Path) -> tuple[Path, list[Path]]:
-    """Extract ZIP safely (zip-slip resistant). Returns (tmp_root, dicom_files)."""
+def _extract_zip_dicoms(
+    zip_path: Path,
+    *,
+    max_uncompressed_bytes: int | None = None,
+) -> tuple[Path, list[Path]]:
+    """Extract ZIP safely (zip-slip + zip-bomb resistant). Returns (tmp_root, dicom_files)."""
+    from app.infra.config import get_settings
+
+    budget = max_uncompressed_bytes if max_uncompressed_bytes is not None else get_settings().max_upload_bytes
     tmp = Path(tempfile.mkdtemp(prefix="voxflow_zip_"))
+    written_total = 0
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             for info in zf.infolist():
@@ -244,6 +256,14 @@ def _extract_zip_dicoms(zip_path: Path) -> tuple[Path, list[Path]]:
                     continue
                 if name.startswith("/") or re.match(r"^[A-Za-z]:", name) or ".." in Path(name).parts:
                     raise ValueError(f"ZIP 路径不安全: {name}")
+                # Declared uncompressed size (may lie — also meter while copying)
+                declared = int(info.file_size or 0)
+                if declared < 0:
+                    raise ValueError(f"ZIP 条目大小非法: {name}")
+                if written_total + declared > budget:
+                    raise ValueError(
+                        f"ZIP 解压后体积超过限制（最多 {budget} 字节）"
+                    )
                 target = (tmp / name).resolve()
                 try:
                     target.relative_to(tmp.resolve())
@@ -251,7 +271,16 @@ def _extract_zip_dicoms(zip_path: Path) -> tuple[Path, list[Path]]:
                     raise ValueError(f"ZIP 路径不安全: {name}") from exc
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info) as src, target.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
+                    while True:
+                        chunk = src.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        written_total += len(chunk)
+                        if written_total > budget:
+                            raise ValueError(
+                                f"ZIP 解压后体积超过限制（最多 {budget} 字节）"
+                            )
+                        dst.write(chunk)
         dicoms = [
             p
             for p in tmp.rglob("*")
@@ -275,35 +304,37 @@ def list_series_dicom_files(series_dir: Path) -> list[Path]:
 
 
 def read_series_volume(series_path: str | Path) -> np.ndarray | None:
+    """Stack spatially-sorted slices via shared pixel decoder (TODO-1 #2/#4)."""
+    from app.imaging.pixel_decode import PixelDecodeError, decode_dicom_file
+
     series_dir = Path(series_path)
     files = sort_dicom_paths_spatially(list_series_dicom_files(series_dir))
     if not files:
         return None
 
     slices: list[np.ndarray] = []
-    shapes: set[tuple[int, ...]] = set()
+    shapes: set[tuple[int, int]] = set()
     seen_sops: set[str] = set()
     for path in files:
         try:
-            ds = pydicom.dcmread(str(path), force=True)
-            sop = str(getattr(ds, "SOPInstanceUID", path.name))
+            # Dedup by SOP when reading headers cheaply
+            ds_meta = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+            sop = str(getattr(ds_meta, "SOPInstanceUID", path.name))
             if sop in seen_sops:
                 continue
             seen_sops.add(sop)
-            arr = ds.pixel_array.astype(np.float32)
-            if arr.ndim != 2:
-                logger.warning("pixel_not_2d", path=str(path), shape=list(arr.shape))
-                return None
-            shapes.add(arr.shape)
-            if len(shapes) > 1:
-                logger.warning("pixel_shape_mismatch", path=str(path), shapes=[list(s) for s in shapes])
-                return None
-            slope = float(getattr(ds, "RescaleSlope", 1.0) or 1.0)
-            intercept = float(getattr(ds, "RescaleIntercept", 0.0) or 0.0)
-            arr = arr * slope + intercept
-            slices.append(arr)
+            decoded = decode_dicom_file(path)
+        except PixelDecodeError as exc:
+            logger.warning("pixel_decode_failed", path=str(path), error=str(exc))
+            return None
         except Exception as exc:  # noqa: BLE001
             logger.warning("pixel_read_failed", path=str(path), error=str(exc))
+            return None
+        shapes.add((decoded.rows, decoded.cols))
+        if len(shapes) > 1:
+            logger.warning("pixel_shape_mismatch", path=str(path), shapes=[list(s) for s in shapes])
+            return None
+        slices.append(decoded.pixels)
     if not slices:
         return None
     return np.stack(slices, axis=0)
