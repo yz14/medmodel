@@ -18,11 +18,13 @@ import {
 } from '@/components/ui/tooltip'
 import {
   formatDate,
+  formatDateTime,
   formatPatientName,
   formatPercent,
   formatRelative,
   shortUid,
 } from '@/lib/format'
+import { AbsoluteTime } from '@/components/AbsoluteTime'
 import type { StudySummary } from '@/types/api'
 
 export function StudiesTable({
@@ -79,7 +81,7 @@ export function StudiesTable({
           const inflight = lt.status === 'queued' || lt.status === 'running'
           const tip = [
             lt.model_name || lt.model_id,
-            lt.created_at ? formatRelative(lt.created_at) : null,
+            lt.created_at ? `${formatDateTime(lt.created_at)}（${formatRelative(lt.created_at)}）` : null,
             inflight ? formatPercent(lt.progress, 0) : null,
           ]
             .filter(Boolean)
@@ -138,7 +140,7 @@ export function StudiesTable({
       },
       {
         accessorKey: 'study_uid',
-        header: 'Study UID',
+        header: '检查 UID',
         meta: { className: 'hidden min-w-[7rem] lg:table-cell' },
         cell: ({ getValue }) => (
           <span className="hidden font-mono text-xs text-muted lg:inline">
@@ -152,7 +154,7 @@ export function StudiesTable({
         meta: { className: 'hidden whitespace-nowrap xl:table-cell' },
         cell: ({ getValue }) => (
           <span className="hidden whitespace-nowrap text-xs text-muted xl:inline">
-            {formatRelative(getValue<string | null>())}
+            <AbsoluteTime value={getValue<string | null>()} />
           </span>
         ),
       },

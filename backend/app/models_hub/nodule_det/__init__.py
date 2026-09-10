@@ -25,7 +25,7 @@ class NoduleDetectionModel(BaseFakeModel):
         task_type=TaskType.DETECTION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="在肺实质内输出结节外接框；优先命中 phantom 预埋结节。",
+        description="在肺实质内检测可疑结节，输出外接框与置信度，便于快速定位与审阅。",
         input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
@@ -56,7 +56,7 @@ class NoduleDetectionModel(BaseFakeModel):
         ],
         metrics={"map": 0.78, "sensitivity": 0.92, "precision": 0.88, "froc": 0.85},
         expected_latency_ms=1500,
-        tags=["detection", "nodule", "demo"],
+        tags=["detection", "nodule", "demo", "synthetic"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:

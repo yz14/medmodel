@@ -4,7 +4,8 @@ import { type ColumnDef, type RowSelectionState } from '@tanstack/react-table'
 import { RotateCcw, XCircle, Eye } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { api } from '@/lib/api'
-import { formatDateTime, formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
+import { formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
+import { AbsoluteTime } from '@/components/AbsoluteTime'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
@@ -236,9 +237,10 @@ export function TaskList({ tasks }: { tasks: TaskSummary[] }) {
         accessorKey: 'created_at',
         header: '创建时间',
         cell: ({ getValue }) => (
-          <span className="whitespace-nowrap text-xs text-muted">
-            {formatDateTime(getValue<string | null>())}
-          </span>
+          <AbsoluteTime
+            value={getValue<string | null>()}
+            className="whitespace-nowrap text-xs text-muted"
+          />
         ),
       },
       {

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, PanelLeft, PanelRight, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
+import { formatPatientName } from '@/lib/format'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -118,7 +119,7 @@ export function ViewerPage() {
       <div className="p-6">
         <EmptyState
           title="无法打开检查"
-          description={(studyQuery.error as Error)?.message || 'Study 不存在'}
+          description={(studyQuery.error as Error)?.message || '检查不存在'}
           action={
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => void studyQuery.refetch()}>
@@ -140,7 +141,7 @@ export function ViewerPage() {
 
   const study = studyQuery.data
   const activeSeries = study.series?.find((s) => s.series_uid === seriesUid) ?? study.series?.[0]
-  const patientLabel = `${study.patient_name || '未知患者'} · ${study.modality || '—'} · ${study.study_description || study.study_uid}`
+  const patientLabel = `${formatPatientName(study.patient_name)} · ${study.modality || '—'} · ${study.study_description || study.study_uid}`
   const viewportMeta = {
     patientName: study.patient_name,
     patientId: study.patient_id,

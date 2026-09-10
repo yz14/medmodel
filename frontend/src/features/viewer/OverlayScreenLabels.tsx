@@ -1,5 +1,6 @@
 import { imageToScreen, pixelDistanceMm, type Camera2D } from '@/features/viewer/core'
 import { detectionColor } from '@/features/viewer/core/overlayStyle'
+import { findingLabelZh } from '@/features/viewer/findingLabels'
 import type { LengthMeasurement } from '@/stores/viewer-store'
 import type { DetectionBox } from '@/types/api'
 
@@ -54,7 +55,7 @@ export function OverlayScreenLabels({
               color: '#fff',
             }}
           >
-            <span style={{ color }}>{box.label}</span>
+            <span style={{ color }}>{findingLabelZh(box.label)}</span>
             <span className="ml-1 tabular-nums text-white/80">
               {(box.confidence * 100).toFixed(0)}%
             </span>
@@ -78,7 +79,7 @@ export function OverlayScreenLabels({
             }}
           >
             <span className="tabular-nums text-sky-200">{dist.toFixed(1)} mm</span>
-            {selected && <span className="ml-1 text-white/50">Del</span>}
+            {selected && <span className="ml-1 text-white/50">删除</span>}
           </div>
         )
       })}

@@ -99,7 +99,7 @@ export function DataPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <Input
             className="pl-9"
-            placeholder="搜索患者 / Study UID / 描述"
+            placeholder="搜索患者 / 检查 UID / 描述"
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
             onKeyDown={(e) => {

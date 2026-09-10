@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { formatAge, formatPatientName, formatSex } from '@/lib/format'
 import { isCtLike, isProjectionModality } from '@/features/viewer/core'
 
 export interface ViewportMeta {
@@ -51,6 +52,16 @@ export function ViewportCorners({
   const showProbe =
     probeHu != null && Number.isFinite(probeHu) && (isCtLike(modality) || !isProjectionModality(modality))
 
+  const sexLabel = formatSex(meta?.patientSex)
+  const ageLabel = formatAge(meta?.patientAge)
+  const demographics = [
+    meta?.patientId,
+    sexLabel !== '—' ? sexLabel : null,
+    ageLabel !== '—' ? ageLabel : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   if (compact) {
     return (
       <div className={cn('pointer-events-none absolute inset-0 z-20', className)}>
@@ -58,7 +69,7 @@ export function ViewportCorners({
           W/L {Math.round(windowWidth)}/{Math.round(windowCenter)}
         </div>
         <div className={cn(chip, 'absolute bottom-2 right-2 tabular-nums')}>
-          Im {sliceCount ? `${sliceIndex + 1}/${sliceCount}` : '—'}
+          层 {sliceCount ? `${sliceIndex + 1}/${sliceCount}` : '—'}
         </div>
       </div>
     )
@@ -67,19 +78,17 @@ export function ViewportCorners({
   return (
     <div className={cn('pointer-events-none absolute inset-0 z-20', className)}>
       <div className={cn('absolute left-3 top-3 space-y-0.5')}>
-        <div className={cn(chip, 'font-medium')}>{meta?.patientName || 'Anonymous'}</div>
-        <div className={cn(chip, 'text-white/80')}>
-          {[meta?.patientId, meta?.patientSex, meta?.patientAge].filter(Boolean).join(' · ') || '—'}
-        </div>
+        <div className={cn(chip, 'font-medium')}>{formatPatientName(meta?.patientName)}</div>
+        <div className={cn(chip, 'text-white/80')}>{demographics || '—'}</div>
       </div>
 
       <div className={cn('absolute right-3 top-3 space-y-0.5 text-right')}>
         <div className={chip}>{meta?.modality || '—'}</div>
         <div className={cn(chip, 'max-w-[220px] truncate text-white/80')}>
-          {meta?.studyDescription || 'Study'}
+          {meta?.studyDescription || '检查'}
         </div>
         <div className={cn(chip, 'max-w-[220px] truncate text-white/80')}>
-          {meta?.seriesDescription || 'Series'}
+          {meta?.seriesDescription || '序列'}
         </div>
       </div>
 
@@ -87,15 +96,15 @@ export function ViewportCorners({
         <div className={cn(chip, 'tabular-nums')}>
           W/L: {Math.round(windowWidth)} / {Math.round(windowCenter)}
         </div>
-        <div className={cn(chip, 'tabular-nums')}>Zoom: {(zoom * 100).toFixed(0)}%</div>
+        <div className={cn(chip, 'tabular-nums')}>缩放: {(zoom * 100).toFixed(0)}%</div>
         {showThickness && (
           <div className={cn(chip, 'tabular-nums text-white/80')}>
-            Thk: {meta!.sliceThickness!.toFixed(2)} mm
+            层厚: {meta!.sliceThickness!.toFixed(2)} mm
           </div>
         )}
         {(flipH || flipV) && (
           <div className={cn(chip, 'text-white/80')}>
-            Flip {[flipH && 'H', flipV && 'V'].filter(Boolean).join('+')}
+            翻转 {[flipH && '水平', flipV && '垂直'].filter(Boolean).join('+')}
           </div>
         )}
         {showProbe && (
@@ -106,7 +115,7 @@ export function ViewportCorners({
       </div>
 
       <div className={cn(chip, 'absolute bottom-3 right-3 tabular-nums')}>
-        Im: {sliceCount ? `${sliceIndex + 1} / ${sliceCount}` : '—'}
+        层: {sliceCount ? `${sliceIndex + 1} / ${sliceCount}` : '—'}
       </div>
     </div>
   )

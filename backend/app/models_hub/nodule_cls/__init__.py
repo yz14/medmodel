@@ -25,7 +25,7 @@ class NoduleClassificationModel(BaseFakeModel):
         task_type=TaskType.CLASSIFICATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="以 series_uid 为种子的确定性伪分类，输出良/恶性概率与 CAM 示意叠加。",
+        description="对胸部 CT 结节区域进行良恶性分类，输出类别概率与 CAM 热图叠加，辅助随访决策。",
         input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
@@ -49,7 +49,7 @@ class NoduleClassificationModel(BaseFakeModel):
         ],
         metrics={"auc": 0.91, "accuracy": 0.87, "sensitivity": 0.89, "specificity": 0.84},
         expected_latency_ms=900,
-        tags=["classification", "nodule", "demo"],
+        tags=["classification", "nodule", "demo", "synthetic"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:

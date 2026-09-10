@@ -34,8 +34,8 @@ import {
   formatNumber,
   formatPatientName,
   formatPercent,
-  formatRelative,
 } from '@/lib/format'
+import { AbsoluteTime } from '@/components/AbsoluteTime'
 import { PageHeader } from '@/components/PageHeader'
 import { KpiCard } from '@/components/KpiCard'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -121,9 +121,7 @@ export function DashboardPage() {
       }),
       columnHelper.accessor('created_at', {
         header: '时间',
-        cell: (info) => (
-          <span className="text-xs text-muted">{formatRelative(info.getValue())}</span>
-        ),
+        cell: (info) => <AbsoluteTime value={info.getValue()} className="text-xs text-muted" />,
       }),
     ],
     [],
@@ -247,7 +245,7 @@ export function DashboardPage() {
         <KpiCard
           title="入库检查"
           value={formatNumber(data.kpis.study_count)}
-          hint="已入库 Study"
+          hint="已入库检查"
           icon={<Database className="h-5 w-5" />}
         />
         <KpiCard

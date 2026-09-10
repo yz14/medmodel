@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, RotateCcw, XCircle, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
-import { formatDateTime, formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
+import { formatMs, formatPatientName, formatPercent, shortUid } from '@/lib/format'
+import { AbsoluteTime } from '@/components/AbsoluteTime'
 import { PageHeader } from '@/components/PageHeader'
 import { StatusBadge } from '@/components/StatusBadge'
 import { EmptyState } from '@/components/EmptyState'
@@ -101,7 +102,6 @@ export function TaskDetailPage() {
 
   const patientTitle = formatPatientName(t.patient_name)
   const modelLabel = t.model_name || t.model_id
-  const timeLabel = t.created_at ? formatDateTime(t.created_at) : '—'
 
   return (
     <div>
@@ -109,7 +109,7 @@ export function TaskDetailPage() {
         title={`${patientTitle} · ${modelLabel}`}
         description={
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span>{timeLabel}</span>
+            <AbsoluteTime value={t.created_at} />
             {t.modality && <span>· {t.modality}</span>}
             {t.study_description && <span>· {t.study_description}</span>}
             <span className="font-mono text-muted">· {shortUid(t.task_id, 10, 4)}</span>
@@ -171,15 +171,21 @@ export function TaskDetailPage() {
                 <dl className="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <dt className="text-muted">创建</dt>
-                    <dd className="tabular-nums">{formatDateTime(t.created_at)}</dd>
+                    <dd>
+                      <AbsoluteTime value={t.created_at} />
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-muted">开始</dt>
-                    <dd className="tabular-nums">{formatDateTime(t.started_at)}</dd>
+                    <dd>
+                      <AbsoluteTime value={t.started_at} />
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-muted">结束</dt>
-                    <dd className="tabular-nums">{formatDateTime(t.finished_at)}</dd>
+                    <dd>
+                      <AbsoluteTime value={t.finished_at} />
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-muted">耗时</dt>

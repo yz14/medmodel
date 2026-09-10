@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, FlaskConical } from 'lucide-react'
 import { api } from '@/lib/api'
+import { formatPatientName } from '@/lib/format'
 import { EmptyState } from '@/components/EmptyState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SeriesList } from '@/features/viewer/SeriesList'
@@ -49,7 +50,7 @@ export function ViewerCs3dPage() {
       <div className="p-6">
         <EmptyState
           title="无法打开检查（CS3D spike）"
-          description={(studyQuery.error as Error)?.message || 'Study 不存在'}
+          description={(studyQuery.error as Error)?.message || '检查不存在'}
           action={
             <Link to="/viewer" className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm text-white">
               返回阅片列表
@@ -75,7 +76,7 @@ export function ViewerCs3dPage() {
           打开正式阅片
         </Link>
         <span className="min-w-0 flex-1 truncate text-right text-xs text-muted">
-          {study.patient_name || '未知患者'} · {study.modality || '—'}
+          {formatPatientName(study.patient_name)} · {study.modality || '—'}
         </span>
         <Link to="/viewer" className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
           <ArrowLeft className="h-3.5 w-3.5" />

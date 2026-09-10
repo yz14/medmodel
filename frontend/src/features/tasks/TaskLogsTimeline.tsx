@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { formatDateTime } from '@/lib/format'
+import { AbsoluteTime } from '@/components/AbsoluteTime'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -154,7 +154,7 @@ export function TaskLogsTimeline({
                     )}
                   />
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                    <span className="tabular-nums">{formatDateTime(log.created_at)}</span>
+                    <AbsoluteTime value={log.created_at} />
                     {log.stage ? (
                       <span className="rounded bg-surface-2 px-1.5 py-0.5 text-fg">
                         {stageLabel(log.stage)}

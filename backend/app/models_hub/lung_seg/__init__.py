@@ -26,7 +26,7 @@ class LungSegmentationModel(BaseFakeModel):
         task_type=TaskType.SEGMENTATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="基于体表连通域 + HU 阈值的假肺分割（无硬编码椭圆）。",
+        description="胸部 CT 肺实质自动分割，输出左右肺合并掩膜，辅助肺容积评估与解剖定位。",
         input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
@@ -46,7 +46,7 @@ class LungSegmentationModel(BaseFakeModel):
         ],
         metrics={"dice": 0.956, "iou": 0.918, "hd95": 2.1, "asd": 0.6},
         expected_latency_ms=1800,
-        tags=["segmentation", "chest", "demo"],
+        tags=["segmentation", "chest", "demo", "synthetic"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:

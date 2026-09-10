@@ -25,7 +25,7 @@ export function SeriesList({
       <div className="flex-1 space-y-1 overflow-y-auto p-1.5">
         {series.map((s) => {
           const active = s.series_uid === activeUid
-          const title = s.description || `Series ${s.series_number ?? ''}` || '未命名序列'
+          const title = s.description || (s.series_number != null ? `序列 ${s.series_number}` : '未命名序列')
           return (
             <button
               key={s.series_uid}

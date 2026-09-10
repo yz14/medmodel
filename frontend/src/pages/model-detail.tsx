@@ -116,7 +116,7 @@ export function ModelDetailPage() {
         {ready.data?.ready ? (
           <span className="inline-flex items-center gap-1 text-xs text-success" data-testid="model-ready">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            就绪 · {ready.data.message}
+            {ready.data.message || '模型可用'}
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 text-xs text-warning">

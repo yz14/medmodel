@@ -28,7 +28,7 @@ class NoduleSegmentationModel(BaseFakeModel):
         task_type=TaskType.SEGMENTATION,
         modalities=[Modality.CT],
         body_parts=["CHEST", "LUNG"],
-        description="在肺实质内分割结节；优先命中 phantom 预埋结节。",
+        description="在肺实质内自动分割肺结节，输出逐层掩膜与体积测量，支持多发结节场景。",
         input_constraints={"modality": ["CT"], "min_slices": 8, "body_part": ["CHEST", "LUNG"]},
         params_schema={
             "type": "object",
@@ -54,7 +54,7 @@ class NoduleSegmentationModel(BaseFakeModel):
         ],
         metrics={"dice": 0.941, "iou": 0.892, "hd95": 3.4, "asd": 0.9},
         expected_latency_ms=2200,
-        tags=["segmentation", "nodule", "demo"],
+        tags=["segmentation", "nodule", "demo", "synthetic"],
     )
 
     def preprocess(self, ctx: InferenceContext) -> dict[str, Any]:

@@ -19,7 +19,7 @@ export function ClinicalPage() {
             报告工作流已接入阅片器
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            在阅片页运行推理后，于右侧 AI 面板勾选 Findings，生成中文结构化报告，并可下载 DICOM
+            在阅片页运行推理后，于右侧 AI 面板勾选检出，生成中文结构化报告，并可下载 DICOM
             SEG（掩膜）、SR-TID1500（测量）与 GSPS（检出框）。导出对象通过 Contributing Equipment
             写入模型身份。
           </p>
