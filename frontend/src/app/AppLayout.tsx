@@ -2,6 +2,7 @@ import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { AppSidebar } from '@/components/AppSidebar'
 import { AppTopbar } from '@/components/AppTopbar'
+import { AppToaster } from '@/components/AppToaster'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { applyTheme, useUiStore } from '@/stores/ui-store'
@@ -23,7 +24,6 @@ export function AppLayout() {
   const isViewer =
     location.pathname.startsWith('/viewer/') || location.pathname.startsWith('/viewer-cs3d/')
 
-  // 阅片强制深色：离开阅片页后恢复用户主题
   useEffect(() => {
     if (isViewer) {
       applyTheme('dark')
@@ -32,7 +32,6 @@ export function AppLayout() {
     applyTheme(theme)
   }, [isViewer, theme])
 
-  // #6: force collapsed chrome via non-persisted flag — never write sidebarCollapsed
   useEffect(() => {
     setViewerShellActive(isViewer)
     return () => setViewerShellActive(false)
@@ -49,6 +48,7 @@ export function AppLayout() {
           </Suspense>
         </main>
       </div>
+      <AppToaster />
     </div>
   )
 }

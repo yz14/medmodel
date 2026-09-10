@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Play, Square } from 'lucide-react'
+import { Cpu, Loader2, Play, Square } from 'lucide-react'
 import { api } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
 import { formatMs } from '@/lib/format'
@@ -17,8 +17,10 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { EmptyState } from '@/components/EmptyState'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ModelParamsForm } from '@/features/models/ModelParamsForm'
+import { taskTypeLabel } from '@/features/models/metrics'
 import {
   FindingsList,
   buildFindings,
@@ -27,6 +29,7 @@ import {
 } from '@/features/viewer/FindingsList'
 import { ReportPanel } from '@/features/viewer/ReportPanel'
 import { useTaskSSE } from '@/features/tasks/useTaskSSE'
+import { stageLabel } from '@/features/tasks/stages'
 import { useViewerStore } from '@/stores/viewer-store'
 import { asJsonSchema, type TaskStatus } from '@/types/api'
 import { modelCompatibility } from '@/features/viewer/modelCompatibility'
@@ -51,6 +54,7 @@ export function AiPanel({
   const setActiveTaskId = useViewerStore((s) => s.setActiveTaskId)
   const result = useViewerStore((s) => s.result)
   const setResult = useViewerStore((s) => s.setResult)
+  const sliceIndex = useViewerStore((s) => s.sliceIndex)
   const setSliceIndex = useViewerStore((s) => s.setSliceIndex)
   const showMasks = useViewerStore((s) => s.showMasks)
   const setShowMasks = useViewerStore((s) => s.setShowMasks)
@@ -83,33 +87,46 @@ export function AiPanel({
   })
 
   const models = modelsQuery.data?.items ?? []
-  const seriesMeta = { modality, bodyPart, numInstances }
-  const compatibleModels = models.map((m) => ({
-    model: m,
-    compat: modelCompatibility(m, seriesMeta),
-  }))
-  const selected =
-    models.find((m) => m.id === selectedModelId) ??
-    compatibleModels.find((c) => c.compat.ok)?.model ??
-    models[0]
-  const selectedCompat = selected
-    ? modelCompatibility(selected, seriesMeta)
-    : { ok: false, reason: '未选择模型' }
+  const seriesMeta = useMemo(
+    () => ({ modality, bodyPart, numInstances }),
+    [modality, bodyPart, numInstances],
+  )
 
+  const compatibleEntries = useMemo(
+    () =>
+      models
+        .map((m) => ({ model: m, compat: modelCompatibility(m, seriesMeta) }))
+        .filter((e) => e.compat.ok),
+    [models, seriesMeta],
+  )
+  const compatibleModels = useMemo(
+    () => compatibleEntries.map((e) => e.model),
+    [compatibleEntries],
+  )
+  const hasCompatible = compatibleModels.length > 0
+
+  const selected = selectedModelId
+    ? compatibleModels.find((m) => m.id === selectedModelId)
+    : undefined
+
+  // #12: only auto-pick a compatible model; never fall back to incompatible / models[0]
   useEffect(() => {
     if (!models.length) return
-    const current = selectedModelId ? models.find((m) => m.id === selectedModelId) : undefined
-    if (current && modelCompatibility(current, seriesMeta).ok) return
-    const firstOk = compatibleModels.find((c) => c.compat.ok)?.model
-    if (firstOk) setSelectedModelId(firstOk.id)
-  }, [models, selectedModelId, modality, bodyPart, numInstances, setSelectedModelId])
+    if (selectedModelId && compatibleModels.some((m) => m.id === selectedModelId)) return
+    const firstOk = compatibleModels[0]
+    setSelectedModelId(firstOk ? firstOk.id : null)
+  }, [models.length, selectedModelId, compatibleModels, setSelectedModelId])
 
   const [params, setParams] = useState<Record<string, unknown>>({})
   const [paramsValid, setParamsValid] = useState(true)
   const onParamsChange = useCallback((next: Record<string, unknown>) => setParams(next), [])
 
   useEffect(() => {
-    if (!selected) return
+    if (!selected) {
+      setParams({})
+      setParamsValid(true)
+      return
+    }
     const defaults: Record<string, unknown> = { ...(selected.default_params ?? {}) }
     const props = asJsonSchema(selected.params_schema).properties ?? {}
     for (const [key, schema] of Object.entries(props)) {
@@ -134,7 +151,20 @@ export function AiPanel({
   useEffect(() => {
     const status = taskQuery.data?.status
     if (!activeTaskId || status !== 'succeeded') return
-    void api.getTaskResult(activeTaskId).then(setResult).catch(() => undefined)
+    let cancelled = false
+    void api
+      .getTaskResult(activeTaskId)
+      .then((res) => {
+        if (!cancelled && useViewerStore.getState().activeTaskId === activeTaskId) {
+          setResult(res)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) toast.error(errorMessage(err, '加载推理结果失败'))
+      })
+    return () => {
+      cancelled = true
+    }
   }, [activeTaskId, taskQuery.data?.status, setResult])
 
   const runMutation = useMutation({
@@ -156,7 +186,7 @@ export function AiPanel({
       setTab('analyze')
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       void queryClient.invalidateQueries({ queryKey: ['overview'] })
-      toast.success('已创建推理任务')
+      toast.success('已创建推理任务', { duration: 2000 })
     },
     onError: (err) => {
       toast.error(errorMessage(err, '创建任务失败'))
@@ -167,7 +197,7 @@ export function AiPanel({
     mutationFn: () => api.cancelTask(activeTaskId!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['task', activeTaskId] })
-      toast.success('已取消任务')
+      toast.success('已取消任务', { duration: 2000 })
     },
     onError: (err) => {
       toast.error(errorMessage(err, '取消失败'))
@@ -178,7 +208,6 @@ export function AiPanel({
   const busy = task?.status === 'queued' || task?.status === 'running'
   const findings = useMemo(() => buildFindings(result), [result])
 
-  // Seed selection once per task result; do not override manual unchecks (N-F6).
   useEffect(() => {
     const key =
       activeTaskId && findings.length
@@ -190,7 +219,6 @@ export function AiPanel({
     setReviews({})
   }, [activeTaskId, findings])
 
-  // FE-3: auto-jump to representative finding slice once per result + enable masks + open 检出
   useEffect(() => {
     if (!activeTaskId || !result || !findings.length) return
     const key = `${activeTaskId}:${findings.map((f) => f.id).join(',')}`
@@ -252,6 +280,8 @@ export function AiPanel({
     return { accepted, rejected, corrected, pending }
   }, [findings, reviews])
 
+  const modalityLabel = modality || '当前'
+
   return (
     <div className="flex h-full min-h-0 flex-col border-l border-border bg-surface-1" data-testid="ai-panel">
       <Tabs
@@ -261,16 +291,16 @@ export function AiPanel({
       >
         <div className="border-b border-border px-2 py-2">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="analyze" className="px-1.5 text-[12px]">
+            <TabsTrigger value="analyze" className="px-1.5 text-xs">
               分析
             </TabsTrigger>
-            <TabsTrigger value="findings" className="px-1.5 text-[12px]">
+            <TabsTrigger value="findings" className="px-1.5 text-xs">
               检出
             </TabsTrigger>
-            <TabsTrigger value="layers" className="px-1.5 text-[12px]" data-testid="ai-tab-layers">
+            <TabsTrigger value="layers" className="px-1.5 text-xs" data-testid="ai-tab-layers">
               图层
             </TabsTrigger>
-            <TabsTrigger value="report" className="px-1.5 text-[12px]">
+            <TabsTrigger value="report" className="px-1.5 text-xs">
               报告
             </TabsTrigger>
           </TabsList>
@@ -278,83 +308,92 @@ export function AiPanel({
 
         <TabsContent value="analyze" className="mt-0 min-h-0 flex-1 overflow-y-auto p-3">
           <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs text-muted">选择模型</label>
-              <Select
-                value={selected?.id}
-                onValueChange={setSelectedModelId}
-                disabled={!models.length}
-              >
-                <SelectTrigger data-testid="model-select" aria-label="选择模型">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {compatibleModels.map(({ model: m, compat }) => (
-                    <SelectItem key={m.id} value={m.id} disabled={!compat.ok}>
-                      {m.name} · {m.task_type}
-                      {!compat.ok && compat.reason ? `（${compat.reason}）` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!selectedCompat.ok && selectedCompat.reason && (
-                <p className="text-xs text-warning" data-testid="model-incompatible">
-                  当前序列不适用：{selectedCompat.reason}
-                </p>
-              )}
-              {selected && (
-                <p className="text-xs leading-relaxed text-muted">{selected.description}</p>
-              )}
-            </div>
-
-            {selected && (
-              <ModelParamsForm
-                key={selected.id}
-                schema={asJsonSchema(selected.params_schema)}
-                values={params}
-                onChange={onParamsChange}
-                onValidityChange={setParamsValid}
+            {!modelsQuery.isLoading && !hasCompatible ? (
+              <EmptyState
+                icon={<Cpu className="h-5 w-5" />}
+                title={`当前 ${modalityLabel} 序列暂无适用模型`}
+                description="请切换到兼容模态的序列，或在模型仓库启用对应模型。"
+                className="border border-dashed border-border py-8"
               />
-            )}
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className="text-xs text-muted" htmlFor="ai-model-select">
+                    选择模型
+                  </label>
+                  <Select
+                    value={selected?.id ?? undefined}
+                    onValueChange={setSelectedModelId}
+                    disabled={!hasCompatible}
+                  >
+                    <SelectTrigger
+                      id="ai-model-select"
+                      data-testid="model-select"
+                      aria-label="选择模型"
+                    >
+                      <SelectValue placeholder="选择适用模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {compatibleModels.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name} · {taskTypeLabel(m.task_type)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selected && (
+                    <p className="text-xs leading-relaxed text-muted line-clamp-3">
+                      {selected.description}
+                    </p>
+                  )}
+                </div>
 
-            <div className="flex gap-2">
-              <Button
-                className="flex-1"
-                data-testid="run-inference"
-                disabled={runMutation.isPending || busy}
-                onClick={() => {
-                  if (!selected) {
-                    toast.error('请先选择模型')
-                    return
-                  }
-                  if (!selectedCompat.ok) {
-                    toast.error(selectedCompat.reason || '当前序列与模型不兼容')
-                    return
-                  }
-                  if (!paramsValid) {
-                    toast.error('请修正模型参数后再运行')
-                    return
-                  }
-                  runMutation.mutate()
-                }}
-              >
-                {runMutation.isPending || busy ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
+                {selected && (
+                  <ModelParamsForm
+                    key={selected.id}
+                    schema={asJsonSchema(selected.params_schema)}
+                    values={params}
+                    onChange={onParamsChange}
+                    onValidityChange={setParamsValid}
+                  />
                 )}
-                运行推理
-              </Button>
-              {busy && activeTaskId && (
-                <Button
-                  variant="outline"
-                  onClick={() => cancelMutation.mutate()}
-                  disabled={cancelMutation.isPending}
-                >
-                  <Square className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    data-testid="run-inference"
+                    disabled={!selected || runMutation.isPending || busy}
+                    onClick={() => {
+                      if (!selected) {
+                        toast.error('请先选择模型')
+                        return
+                      }
+                      if (!paramsValid) {
+                        toast.error('请修正模型参数后再运行')
+                        return
+                      }
+                      runMutation.mutate()
+                    }}
+                  >
+                    {runMutation.isPending || busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                    运行推理
+                  </Button>
+                  {busy && activeTaskId && (
+                    <Button
+                      variant="outline"
+                      onClick={() => cancelMutation.mutate()}
+                      disabled={cancelMutation.isPending}
+                    >
+                      <Square className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
 
             {task && (
               <div
@@ -363,9 +402,11 @@ export function AiPanel({
               >
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge status={task.status} />
-                  <span className="text-xs text-muted">{task.stage}</span>
+                  <span className="text-xs text-muted">{stageLabel(task.stage)}</span>
                 </div>
-                <Progress value={task.progress} />
+                {(task.status === 'queued' || task.status === 'running') && (
+                  <Progress value={task.progress} />
+                )}
                 <p className="text-xs text-muted">{task.message}</p>
               </div>
             )}
@@ -392,6 +433,7 @@ export function AiPanel({
           {result ? (
             <FindingsList
               findings={findings}
+              currentSliceIndex={sliceIndex}
               enabledMaskIds={enabledMaskIds}
               onToggleMask={toggleMaskId}
               onJump={onJump}
@@ -493,7 +535,7 @@ export function AiPanel({
               />
             </div>
           ) : (
-            <p className="text-xs text-muted">完成推理并勾选 findings 后可生成结构化报告</p>
+            <p className="text-xs text-muted">完成推理并勾选检出后可生成结构化报告</p>
           )}
         </TabsContent>
       </Tabs>
